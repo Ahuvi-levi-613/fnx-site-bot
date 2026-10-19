@@ -1,0 +1,41 @@
+{
+  "base_url": "https://www.fnx.co.il",
+  "allowed_hosts": [
+    "www.fnx.co.il",
+    "fnx.co.il"
+  ],
+  "sitemaps": [
+    "https://www.fnx.co.il/sitemap.xml"
+  ],
+  "seed_urls": [
+    "https://www.fnx.co.il/"
+  ],
+  "include_patterns": [],
+  "exclude_patterns": [
+    "/login",
+    "/my-",
+    "/personal",
+    "/account",
+    "/search",
+    "/en/",
+    "/ar/",
+    "/ru/",
+    "javascript:",
+    "mailto:",
+    "tel:",
+    "#",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".mp4",
+    ".zip",
+    ".docx",
+    ".xlsx"
+  ],
+  "include_pdfs": true,
+  "chunk_max_chars": 1200,
+  "chunk_overlap_chars": 150
+}
