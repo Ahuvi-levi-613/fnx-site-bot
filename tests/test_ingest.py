@@ -4,10 +4,18 @@ import pytest
 
 from fnx_bot.config import CrawlConfig
 from fnx_bot.ingest import pipeline
-from fnx_bot.ingest.chunk import chunk_embedding_text, chunk_page
+from fnx_bot.ingest.chunk import chunk_page
 from fnx_bot.ingest.clean import find_boilerplate, hebrew_ratio, normalize_markdown, strip_boilerplate
 from fnx_bot.ingest.fetch import Page, html_to_markdown
-from fnx_bot.ingest.sitemap import SiteMapper, normalize_url, parse_sitemap, url_allowed
+from fnx_bot.ingest.sitemap import (
+    SiteMapper,
+    area_for_page,
+    area_for_url,
+    normalize_url,
+    parse_sitemap,
+    split_by_scope,
+    url_allowed,
+)
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -20,6 +28,11 @@ def cfg(**kw):
         seed_urls=[],
         exclude_patterns=["/login"],
         delay_seconds=0,
+        areas={
+            "car": {"label": "רכב", "url_keywords": ["car"], "text_keywords": ["ביטוח רכב"]},
+            "apartment": {"label": "דירה", "url_keywords": ["dira"], "text_keywords": ["נזקי מים", "ביטוח דירה"]},
+            "service": {"label": "שירות", "url_keywords": ["contact"], "text_keywords": ["צור קשר"]},
+        },
     )
     base.update(kw)
     return CrawlConfig(**base)
@@ -51,8 +64,22 @@ def test_url_allowed():
     assert url_allowed("https://www.fnx.co.il/claims", c)
     assert not url_allowed("https://www.fnx.co.il/login", c)
     assert not url_allowed("https://evil.com/claims", c)
-    assert not url_allowed("https://www.fnx.co.il/a.pdf", cfg(include_pdfs=False))
-    assert not url_allowed("https://www.fnx.co.il/x", cfg(include_patterns=["claims"]))
+    assert not url_allowed("https://www.fnx.co.il/a.pdf", cfg())  # spec v1: no PDFs
+    assert url_allowed("https://www.fnx.co.il/a.pdf", cfg(include_pdfs=True))
+
+
+def test_areas_by_url_and_by_headings():
+    c = cfg()
+    assert area_for_url("https://www.fnx.co.il/insurance/car/claims", c) == "car"
+    assert area_for_url("https://www.fnx.co.il/pension", c) is None
+    assert area_for_page("https://www.fnx.co.il/p/123", "כותרת", "# ביטוח דירה\n\nטקסט", c) == "apartment"
+    assert area_for_page("https://www.fnx.co.il/p/124", "פנסיה", "# חיסכון\n\nטקסט", c) is None
+
+
+def test_split_by_scope_keeps_seeds():
+    c = cfg(seed_urls=["https://www.fnx.co.il/"])
+    urls = ["https://www.fnx.co.il/", "https://www.fnx.co.il/car", "https://www.fnx.co.il/pension"]
+    assert split_by_scope(urls, c) == (urls[:2], urls[2:])
 
 
 def test_parse_sitemap_index():
@@ -70,7 +97,7 @@ def test_discover_follows_index_and_respects_robots():
         }
     )
     urls = SiteMapper(cfg(), session=s).discover()
-    assert urls == ["https://www.fnx.co.il/claims/water", "https://www.fnx.co.il/forms/a.pdf"]
+    assert urls == ["https://www.fnx.co.il/claims/water"]  # PDF left out (spec v1)
 
 
 # ---------- html -> markdown ----------
@@ -116,7 +143,6 @@ def test_chunk_by_headings_with_path():
     chunks = chunk_page("https://www.fnx.co.il/home", "ביטוח דירה", md, "2026-10-19")
     assert [c.heading_path for c in chunks] == [["ביטוח דירה"], ["ביטוח דירה", "נזקי מים"]]
     assert all(c.url == "https://www.fnx.co.il/home" for c in chunks)
-    assert chunk_embedding_text(chunks[1]).startswith("ביטוח דירה > ביטוח דירה > נזקי מים")
 
 
 def test_tiny_faq_answer_keeps_its_question():
@@ -152,8 +178,9 @@ def test_pipeline_fetch_and_process(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pipeline, "Fetcher", FakeFetcher)
     monkeypatch.setattr(pipeline.SiteMapper, "load_robots", lambda self: self.robots.parse([]))
-    c = cfg(exclude_patterns=[".pdf"], max_pages=5)
-    pages = pipeline.run_fetch(c, ["https://www.fnx.co.il/claims"], data_dir=tmp_path)
+    c = cfg(max_pages=5)
+    # Fixture links carry no area words, so follow every site link here.
+    pages = pipeline.run_fetch(c, ["https://www.fnx.co.il/claims"], data_dir=tmp_path, any_area=True)
     # Follows internal links (menu links too), skips the PDF and the external link
     assert [p["url"] for p in pages] == [
         "https://www.fnx.co.il/claims",
@@ -164,8 +191,28 @@ def test_pipeline_fetch_and_process(tmp_path, monkeypatch):
 
     stats = pipeline.run_process(c, pipeline.load_cached_pages(tmp_path), data_dir=tmp_path)
     assert stats["pages_kept"] == 3 and stats["chunks"] > 0
+    assert stats["pages_per_area"] == {"apartment": 3}  # title mentions נזקי מים
     rows = pipeline._read_jsonl(tmp_path / "chunks.jsonl")
     assert all(r["url"].startswith("https://www.fnx.co.il/") for r in rows)
     assert all(r["text"] for r in rows)
+    assert all(r["area"] == "apartment" for r in rows)
     # Text shared by every page is treated as boilerplate and removed
     assert not any("מה צריך להכין" in r["text"] and "תמונות של הנזק" in r["text"] for r in rows)
+
+
+def test_fetch_follows_only_area_links_by_default(tmp_path, monkeypatch):
+    html = '<html><body><main><h1>ביטוח רכב</h1><p>' + "מידע על ביטוח רכב. " * 10 + "</p>" \
+        '<a href="/car/claims">תביעות</a><a href="/pension">פנסיה</a></main></body></html>'
+
+    class FakeFetcher:
+        def __init__(self, c):
+            pass
+
+        def fetch(self, url):
+            t, md, links = html_to_markdown(html, url)
+            return Page(url, t, md, "direct", links)
+
+    monkeypatch.setattr(pipeline, "Fetcher", FakeFetcher)
+    monkeypatch.setattr(pipeline.SiteMapper, "load_robots", lambda self: self.robots.parse([]))
+    pages = pipeline.run_fetch(cfg(max_pages=5), ["https://www.fnx.co.il/car"], data_dir=tmp_path)
+    assert [p["url"] for p in pages] == ["https://www.fnx.co.il/car", "https://www.fnx.co.il/car/claims"]

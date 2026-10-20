@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Crawl fnx.co.il into data/chunks.jsonl.
 
-  python scripts/crawl.py map        # list URLs from robots.txt + sitemaps -> data/urls.txt
+  python scripts/crawl.py map        # list in-scope URLs (car, apartment, travel, service) -> data/urls.txt
   python scripts/crawl.py fetch      # fetch pages (resumes; cached in data/raw/)
   python scripts/crawl.py process    # clean + chunk cached pages -> data/pages.jsonl, data/chunks.jsonl
   python scripts/crawl.py all        # all three
@@ -27,6 +27,11 @@ def main() -> int:
     ap.add_argument("--url", action="append", help="fetch only these URLs (repeatable)")
     ap.add_argument("--max-pages", type=int, help="override CRAWL_MAX_PAGES")
     ap.add_argument("--no-follow", action="store_true", help="do not follow links found on pages")
+    ap.add_argument(
+        "--any-area",
+        action="store_true",
+        help="follow every site link, not only area-looking ones (pages are still filtered by area in `process`)",
+    )
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -44,7 +49,7 @@ def main() -> int:
         elif args.step == "fetch":
             f = DATA_DIR / "urls.txt"
             urls = f.read_text(encoding="utf-8").split() if f.exists() else cfg.seed_urls
-        run_fetch(cfg, urls, follow_links=not (args.no_follow or args.url))
+        run_fetch(cfg, urls, follow_links=not (args.no_follow or args.url), any_area=args.any_area)
     if args.step in ("process", "all"):
         stats = run_process(cfg, load_cached_pages())
         log.info(json.dumps(stats, ensure_ascii=False, indent=2))

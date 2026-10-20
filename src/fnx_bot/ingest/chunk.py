@@ -17,6 +17,7 @@ class Chunk:
     text: str
     chunk_index: int
     crawled_at: str
+    area: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -88,6 +89,7 @@ def chunk_page(
     max_chars: int = 1200,
     overlap: int = 150,
     min_chars: int = 40,
+    area: str = "",
 ) -> list[Chunk]:
     chunks: list[Chunk] = []
     pending: tuple[list[str], str] | None = None
@@ -119,11 +121,6 @@ def chunk_page(
         for piece in _split_long(body, max_chars, overlap):
             idx = len(chunks)
             cid = hashlib.sha1(f"{url}#{idx}#{piece}".encode()).hexdigest()[:16]
-            chunks.append(Chunk(cid, url, page_title, path, piece, idx, crawled_at))
+            chunks.append(Chunk(cid, url, page_title, path, piece, idx, crawled_at, area))
     return chunks
 
-
-def chunk_embedding_text(c: Chunk) -> str:
-    """Text to embed later: title + heading path give the chunk its context."""
-    head = " > ".join([c.page_title, *c.heading_path]) if c.page_title else " > ".join(c.heading_path)
-    return f"{head}\n\n{c.text}" if head else c.text

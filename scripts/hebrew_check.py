@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Day-one Hebrew check: does the embedding model match Hebrew questions to the right Hebrew passage?
+"""Day-one Hebrew check: does Gemini Embedding 2 match Hebrew questions to the right Hebrew passage?
 
 Needs GEMINI_API_KEY in .env. Prints, for each question, which passage scored highest.
 The passages below are made-up test sentences, not content from the site.
@@ -7,41 +7,28 @@ The passages below are made-up test sentences, not content from the site.
 from __future__ import annotations
 
 import math
-import os
 import sys
 from pathlib import Path
 
-import requests
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-KEY = os.getenv("GEMINI_API_KEY", "").strip()
-MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
-URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:embedContent"
+from dotenv import load_dotenv  # noqa: E402
+
+from fnx_bot.config import ROOT  # noqa: E402
+from fnx_bot.index.embed import EmbedError, GeminiEmbedder, document_text, query_text  # noqa: E402
 
 PASSAGES = [
     "כדי להגיש תביעה על נזקי מים בדירה יש לצלם את הנזק ולפנות למוקד התביעות.",
     "ביטוח נסיעות לחו\"ל מכסה הוצאות רפואיות בזמן שהייה מחוץ לישראל.",
-    "ניתן להעביר את כספי קרן ההשתלמות למסלול השקעה אחר דרך האזור האישי.",
+    "ניתן לפנות לשירות הלקוחות בטלפון, בוואטסאפ או בטופס צור קשר באתר.",
     "בתאונת דרכים יש לרשום את פרטי הנהג השני ולדווח לחברת הביטוח.",
 ]
 QUESTIONS = [
-    ("נשפך לי מים מהמזגן והרטיב את הפרקט, מה עושים?", 0),
+    ("נשפכו מים מהמזגן והרטיבו את הפרקט, מה עושים?", 0),
     ("אני טס לאירופה, האם יש כיסוי אם אצטרך רופא?", 1),
-    ("איך משנים מסלול בקרן השתלמות?", 2),
+    ("איך אפשר לדבר עם נציג?", 2),
     ("מישהו פגע לי ברכב בחניה", 3),
 ]
-
-
-def embed(text: str, task: str) -> list[float]:
-    r = requests.post(
-        URL,
-        headers={"x-goog-api-key": KEY},
-        json={"content": {"parts": [{"text": text}]}, "taskType": task},
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()["embedding"]["values"]
 
 
 def cos(a: list[float], b: list[float]) -> float:
@@ -50,19 +37,21 @@ def cos(a: list[float], b: list[float]) -> float:
 
 
 def main() -> int:
-    if not KEY:
-        print("Missing GEMINI_API_KEY in .env")
+    load_dotenv(ROOT / ".env")
+    emb = GeminiEmbedder()
+    try:
+        pv = emb.embed_many([document_text("none", p) for p in PASSAGES])
+        qv = emb.embed_many([query_text(q) for q, _ in QUESTIONS])
+    except EmbedError as e:
+        print(f"Error: {e}")
         return 1
-    pv = [embed(p, "RETRIEVAL_DOCUMENT") for p in PASSAGES]
     hits = 0
-    for q, want in QUESTIONS:
-        qv = embed(q, "RETRIEVAL_QUERY")
-        scores = [cos(qv, v) for v in pv]
+    for (q, want), v in zip(QUESTIONS, qv):
+        scores = [cos(v, p) for p in pv]
         best = max(range(len(scores)), key=scores.__getitem__)
         hits += best == want
-        mark = "OK  " if best == want else "MISS"
-        print(f"{mark} {q}\n     -> {PASSAGES[best][:60]}… ({scores[best]:.3f})")
-    print(f"\n{hits}/{len(QUESTIONS)} matched ({MODEL})")
+        print(f"{'OK  ' if best == want else 'MISS'} {q}\n     -> {PASSAGES[best][:60]}… ({scores[best]:.3f})")
+    print(f"\n{hits}/{len(QUESTIONS)} matched ({emb.model})")
     return 0 if hits == len(QUESTIONS) else 2
 
 

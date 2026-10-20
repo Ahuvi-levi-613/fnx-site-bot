@@ -35,9 +35,31 @@ def url_allowed(url: str, cfg: CrawlConfig) -> bool:
         return False
     if is_pdf(url) and not cfg.include_pdfs:
         return False
-    if cfg.include_patterns and not any(x.lower() in full for x in cfg.include_patterns):
-        return False
     return True
+
+
+def area_for_url(url: str, cfg: CrawlConfig) -> str | None:
+    """The spec area (car, apartment, travel, service) a URL belongs to, by keywords in its path."""
+    p = urlparse(url)
+    path = unquote(p.path + ("?" + p.query if p.query else "")).lower()
+    for key, area in cfg.areas.items():
+        if any(k.lower() in path for k in area.get("url_keywords", [])):
+            return key
+    return None
+
+
+def area_for_page(url: str, title: str, markdown: str, cfg: CrawlConfig) -> str | None:
+    """Area by URL first; otherwise by keywords in the page title and headings."""
+    by_url = area_for_url(url, cfg)
+    if by_url:
+        return by_url
+    heads = " ".join([title] + [ln for ln in markdown.splitlines() if ln.startswith("#")])
+    best, best_n = None, 0
+    for key, area in cfg.areas.items():
+        n = sum(heads.count(k) for k in area.get("text_keywords", []))
+        if n > best_n:
+            best, best_n = key, n
+    return best
 
 
 def parse_sitemap(xml: bytes) -> tuple[list[str], list[str]]:
@@ -101,6 +123,7 @@ class SiteMapper:
         return self.filter(urls)
 
     def filter(self, urls: list[str]) -> list[str]:
+        """Allowed, robots-permitted, de-duplicated URLs (any area)."""
         out: list[str] = []
         seen: set[str] = set()
         for u in urls:
@@ -112,8 +135,17 @@ class SiteMapper:
         return out
 
 
+def split_by_scope(urls: list[str], cfg: CrawlConfig) -> tuple[list[str], list[str]]:
+    """(in_scope, out_of_scope). Seed URLs always count as in scope, so links can be found from them."""
+    seeds = {normalize_url(u) for u in cfg.seed_urls}
+    ins, outs = [], []
+    for u in urls:
+        (ins if u in seeds or area_for_url(u, cfg) else outs).append(u)
+    return ins, outs
+
+
 def section_counts(urls: list[str]) -> Counter:
-    """How many URLs per first path segment; used to pick include_patterns."""
+    """How many URLs per first path segment; shown after `map` to tune area keywords."""
     c: Counter = Counter()
     for u in urls:
         seg = unquote(urlparse(u).path).strip("/").split("/")[0] or "(home)"

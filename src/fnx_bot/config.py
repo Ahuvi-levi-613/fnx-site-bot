@@ -18,9 +18,10 @@ class CrawlConfig:
     allowed_hosts: list[str]
     sitemaps: list[str]
     seed_urls: list[str]
-    include_patterns: list[str] = field(default_factory=list)
+    # Scope from the spec: area key -> {label, url_keywords, text_keywords}
+    areas: dict[str, dict] = field(default_factory=dict)
     exclude_patterns: list[str] = field(default_factory=list)
-    include_pdfs: bool = True
+    include_pdfs: bool = False  # spec v1: web pages only, PDFs are a later upgrade
     chunk_max_chars: int = 1200
     chunk_overlap_chars: int = 150
     # From .env
