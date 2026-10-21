@@ -7,10 +7,12 @@ Hebrew RAG chat bot over the public site fnx.co.il. Full spec: `docs/SPEC.md` (r
 - Before EVERY step: say what you'll do and wait for her approval. Do nothing unapproved.
 - Work only per `docs/SPEC.md`. Anything outside it: propose first.
 - Never commit secrets. Keys live only in `.env` (template: `.env.example`).
+- Git: never commit to `main`. Work on a branch, push it, open a pull request; Ahuva reviews and merges.
 
 ## Core rule
 The bot answers only from crawled site content and cites the source URL. No source, no answer.
 Not on the site -> say so + contact options from the site's contact page.
+The challenge rules in `docs/SPEC.md` ("Challenge rules") are non-negotiable; check every answer-layer change against them.
 
 ## Network (NetFree filter on this machine)
 - Call external APIs (Gemini, Cohere, Groq, OpenRouter, Firecrawl) with plain REST via `requests`, not vendor SDKs (gRPC is blocked).

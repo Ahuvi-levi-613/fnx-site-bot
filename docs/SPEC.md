@@ -60,6 +60,21 @@ One script runs all of them after every change.
 4. Test + submit: write the 30 questions, run, improve, run instructions + short summary. End: demo-ready.
 If a day runs long, cut design first, never testing: the key metric is that the bot doesn't invent.
 
+## Challenge rules (from the Phoenix challenge guidelines; must always hold)
+- **Single source:** only content on the Phoenix site. No outside knowledge, no guesses.
+- **Citation:** every answer includes the URL of the page it came from. No source -> no answer, give a referral.
+- **Limits:** no personal advice, no access to customer data. Explain what the site says.
+- **Hebrew:** clear, concise answers, with room for a follow-up question.
+- Measure "not answering" too: correct refusals are half the score in the real world.
+- Polite crawl rate, public areas only. Save the crawl date so content can be refreshed.
+
+Reference dialog from the guidelines:
+- "I have a leak at home, how do I file a claim?" -> finds "water damage claim - apartment insurance" page,
+  answers in ~3 sentences (what to prepare, where to file, what happens next), ends with the fnx.co.il source.
+- "And how long until I get an answer?" -> answers from the same page, or says it isn't written and refers to customer service.
+- "Does my policy cover this?" -> "I can explain what the coverage includes per the site, but your personal policy
+  is checked by customer service."
+
 ## Hackathon submission (from the challenge guidelines)
 Working chat; live demo of 20-30 questions; source code + run instructions; short summary: how content was collected,
 how the passage is chosen, limits, and how content is refreshed.
