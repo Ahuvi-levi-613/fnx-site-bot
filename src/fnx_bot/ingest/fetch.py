@@ -4,7 +4,7 @@ from __future__ import annotations
 import io
 import time
 from dataclasses import dataclass
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -171,6 +171,8 @@ class Fetcher:
         r = _with_retry(lambda: self.session.get(url, timeout=30))
         if not r.ok:
             raise FetchError(f"HTTP {r.status_code}")
+        if urlparse(r.url).netloc.lower() not in self.cfg.allowed_hosts:
+            raise FetchError(f"redirected off the site to {r.url}")
         r.encoding = r.apparent_encoding if not r.encoding or r.encoding.lower() == "iso-8859-1" else r.encoding
         title, md, links = html_to_markdown(r.text, url)
         return Page(url, title, md, "direct", links)

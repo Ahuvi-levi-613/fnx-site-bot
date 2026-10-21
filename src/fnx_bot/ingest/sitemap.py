@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import gzip
+import re
 import urllib.robotparser
 from collections import Counter
 from urllib.parse import unquote, urldefrag, urlparse
@@ -38,28 +39,49 @@ def url_allowed(url: str, cfg: CrawlConfig) -> bool:
     return True
 
 
+_WORD_SPLIT = re.compile(r"[^0-9a-z\u0590-\u05FF]+")
+
+
+def _words(text: str) -> list[str]:
+    """Lowercase words of a URL path or keyword: "/Car-Insurance/FAQ" -> ["car", "insurance", "faq"]."""
+    return [w for w in _WORD_SPLIT.split(unquote(text).lower().replace('"', "").replace("״", "")) if w]
+
+
+def _has_phrase(words: list[str], phrase: list[str]) -> bool:
+    n = len(phrase)
+    return n > 0 and any(words[i : i + n] == phrase for i in range(len(words) - n + 1))
+
+
 def area_for_url(url: str, cfg: CrawlConfig) -> str | None:
-    """The spec area (car, apartment, travel, service) a URL belongs to, by keywords in its path."""
+    """The spec area (car, apartment, travel, service) a URL belongs to, by whole words in its path.
+
+    Whole words only, so "car" matches /car-insurance but not /careers.
+    """
     p = urlparse(url)
-    path = unquote(p.path + ("?" + p.query if p.query else "")).lower()
+    words = _words(p.path + " " + p.query)
     for key, area in cfg.areas.items():
-        if any(k.lower() in path for k in area.get("url_keywords", [])):
+        if any(_has_phrase(words, _words(k)) for k in area.get("url_keywords", [])):
             return key
     return None
 
 
-def area_for_page(url: str, title: str, markdown: str, cfg: CrawlConfig) -> str | None:
-    """Area by URL first; otherwise by keywords in the page title and headings."""
-    by_url = area_for_url(url, cfg)
-    if by_url:
-        return by_url
-    heads = " ".join([title] + [ln for ln in markdown.splitlines() if ln.startswith("#")])
+def _best_area(text: str, cfg: CrawlConfig) -> str | None:
     best, best_n = None, 0
     for key, area in cfg.areas.items():
-        n = sum(heads.count(k) for k in area.get("text_keywords", []))
+        n = sum(text.count(k) for k in area.get("text_keywords", []))
         if n > best_n:
             best, best_n = key, n
     return best
+
+
+def area_for_page(url: str, title: str, markdown: str, cfg: CrawlConfig) -> str | None:
+    """Area by URL first; then by the page headings; the <title> only as a last resort
+    (titles often share a site-wide suffix that would tag every page the same)."""
+    by_url = area_for_url(url, cfg)
+    if by_url:
+        return by_url
+    heads = " ".join(ln for ln in markdown.splitlines() if ln.startswith("#"))
+    return _best_area(heads, cfg) or _best_area(title, cfg)
 
 
 def parse_sitemap(xml: bytes) -> tuple[list[str], list[str]]:

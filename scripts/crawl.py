@@ -16,6 +16,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# Hebrew output on a Windows console that isn't UTF-8 would otherwise crash.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from fnx_bot.config import DATA_DIR, load_config  # noqa: E402
 from fnx_bot.ingest.pipeline import load_cached_pages, run_fetch, run_map, run_process  # noqa: E402

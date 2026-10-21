@@ -72,8 +72,23 @@ def test_areas_by_url_and_by_headings():
     c = cfg()
     assert area_for_url("https://www.fnx.co.il/insurance/car/claims", c) == "car"
     assert area_for_url("https://www.fnx.co.il/pension", c) is None
+    assert area_for_url("https://www.fnx.co.il/careers", c) is None  # whole words only
+    assert area_for_url("https://www.fnx.co.il/Car-Insurance/FAQ", c) == "car"
     assert area_for_page("https://www.fnx.co.il/p/123", "כותרת", "# ביטוח דירה\n\nטקסט", c) == "apartment"
     assert area_for_page("https://www.fnx.co.il/p/124", "פנסיה", "# חיסכון\n\nטקסט", c) is None
+    # Headings beat a site-wide title suffix
+    title = "חיסכון | הפניקס ביטוח רכב ודירה"
+    assert area_for_page("https://www.fnx.co.il/p/125", title, "# צור קשר\n\nטקסט", c) == "service"
+
+
+def test_area_keywords_phrases_and_hebrew():
+    c = cfg(areas={
+        "apartment": {"url_keywords": ["home insurance"], "text_keywords": []},
+        "travel": {"url_keywords": ["חול"], "text_keywords": []},
+    })
+    assert area_for_url("https://www.fnx.co.il/home-insurance/claims", c) == "apartment"
+    assert area_for_url("https://www.fnx.co.il/home", c) is None
+    assert area_for_url("https://www.fnx.co.il/%D7%97%D7%95%22%D7%9C", c) == "travel"  # /חו"ל
 
 
 def test_split_by_scope_keeps_seeds():
@@ -124,6 +139,10 @@ def test_boilerplate_removed_but_headings_kept():
     assert "קבלו הצעה עכשיו" in boiler
     assert "## שאלות נפוצות" not in boiler
     assert strip_boilerplate(pages[0], boiler) == "## שאלות נפוצות\nתוכן ייחודי 0"
+    # With `seen`, the first page keeps the shared line, later pages drop it
+    seen: set = set()
+    assert "קבלו הצעה עכשיו" in strip_boilerplate(pages[0], boiler, seen)
+    assert "קבלו הצעה עכשיו" not in strip_boilerplate(pages[1], boiler, seen)
 
 
 def test_normalize_markdown_drops_images_and_link_targets():
@@ -196,8 +215,8 @@ def test_pipeline_fetch_and_process(tmp_path, monkeypatch):
     assert all(r["url"].startswith("https://www.fnx.co.il/") for r in rows)
     assert all(r["text"] for r in rows)
     assert all(r["area"] == "apartment" for r in rows)
-    # Text shared by every page is treated as boilerplate and removed
-    assert not any("מה צריך להכין" in r["text"] and "תמונות של הנזק" in r["text"] for r in rows)
+    # Text shared by every page is kept once, not once per page
+    assert sum("תמונות של הנזק" in r["text"] for r in rows) == 1
 
 
 def test_fetch_follows_only_area_links_by_default(tmp_path, monkeypatch):
@@ -216,3 +235,26 @@ def test_fetch_follows_only_area_links_by_default(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline.SiteMapper, "load_robots", lambda self: self.robots.parse([]))
     pages = pipeline.run_fetch(cfg(max_pages=5), ["https://www.fnx.co.il/car"], data_dir=tmp_path)
     assert [p["url"] for p in pages] == ["https://www.fnx.co.il/car", "https://www.fnx.co.il/car/claims"]
+
+
+def test_direct_fetch_rejects_redirect_off_site():
+    from fnx_bot.ingest.fetch import Fetcher, FetchError
+
+    class R:
+        status_code, ok, encoding, text = 200, True, "utf-8", "<html><body><main><p>x</p></main></body></html>"
+
+        def __init__(self, url):
+            self.url = url
+
+    class S:
+        headers: dict = {}
+
+        def __init__(self, final):
+            self.final = final
+
+        def get(self, url, timeout=None):
+            return R(self.final)
+
+    with pytest.raises(FetchError):
+        Fetcher(cfg(), session=S("https://login.example.com/")).fetch("https://www.fnx.co.il/car")
+    assert Fetcher(cfg(), session=S("https://www.fnx.co.il/car")).fetch("https://www.fnx.co.il/car").markdown == "x"

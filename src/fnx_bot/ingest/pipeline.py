@@ -123,8 +123,9 @@ def run_process(cfg: CrawlConfig, pages: list[dict], data_dir: Path = DATA_DIR) 
     normalized = [normalize_markdown(p.get("markdown", "")) for p in pages]
     boiler = find_boilerplate(normalized)
     page_rows, chunk_rows, skipped = [], [], []
+    seen_boiler: set[str] = set()
     for p, md in zip(pages, normalized):
-        md = strip_boilerplate(md, boiler)
+        md = strip_boilerplate(md, boiler, seen_boiler)
         if len(md) < 80:
             skipped.append({"url": p["url"], "reason": "too little text"})
             continue

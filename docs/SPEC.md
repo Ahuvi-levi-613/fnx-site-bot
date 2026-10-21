@@ -14,7 +14,7 @@ In: web pages only, four areas:
 | --- | --- |
 | car | products, car property + compulsory claims, FAQ |
 | apartment | products, home damage claims, FAQ |
-| travel | info for customers, what to do abroad |
+| travel | info for customers, what to do abroad, FAQ |
 | service | contact options, common actions, FAQ |
 Out: PDFs (forms, booklets, policy terms) — future upgrade; other site areas; login-only areas; personal data.
 

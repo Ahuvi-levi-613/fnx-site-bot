@@ -60,7 +60,7 @@
       "url_keywords": [
         "apartment",
         "dira",
-        "home-insurance",
+        "home insurance",
         "house",
         "דירה",
         "מבנה",
@@ -79,9 +79,9 @@
         "travel",
         "abroad",
         "nesiot",
-        "passport",
         "נסיעות",
-        "חול"
+        "חול",
+        "לחול"
       ],
       "text_keywords": [
         "ביטוח נסיעות",
@@ -94,11 +94,12 @@
       "label": "שירות לקוחות",
       "url_keywords": [
         "contact",
-        "customer-service",
+        "contact us",
+        "customer service",
         "service",
         "sherut",
         "faq",
-        "צור-קשר",
+        "צור קשר",
         "שירות"
       ],
       "text_keywords": [

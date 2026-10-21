@@ -33,8 +33,17 @@ def find_boilerplate(pages: list[str], min_share: float = 0.5, min_pages: int = 
     return {ln for ln, n in counts.items() if n >= threshold and not ln.startswith("#")}
 
 
-def strip_boilerplate(md: str, boilerplate: set[str]) -> str:
-    kept = [ln for ln in md.splitlines() if _key(ln) not in boilerplate]
+def strip_boilerplate(md: str, boilerplate: set[str], seen: set[str] | None = None) -> str:
+    """Drop boilerplate lines. With `seen`, the first page that has a line keeps it, so text that is
+    real content repeated on many pages (e.g. the same claim steps) is still indexed once."""
+    kept = []
+    for ln in md.splitlines():
+        k = _key(ln)
+        if k in boilerplate:
+            if seen is None or k in seen:
+                continue
+            seen.add(k)
+        kept.append(ln)
     return _BLANKS.sub("\n\n", "\n".join(kept)).strip()
 
 

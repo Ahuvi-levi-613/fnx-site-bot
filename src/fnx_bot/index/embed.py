@@ -51,7 +51,7 @@ class GeminiEmbedder:
     def _key(self, text: str) -> str:
         return hashlib.sha1(f"{self.model}|{self.dim}|{text}".encode()).hexdigest()
 
-    def _post(self, method: str, body: dict, tries: int = 6) -> dict:
+    def _post(self, method: str, body: dict, tries: int = 8) -> dict:
         if not self.api_key:
             raise EmbedError("Missing GEMINI_API_KEY in .env")
         url = f"{API}/{self.model}:{method}"
