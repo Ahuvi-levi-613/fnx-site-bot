@@ -305,32 +305,21 @@
     });
   }
 
-  // Service desks for our four areas, copied from the site's contact page
-  // (fnx.co.il/customer-service/contact-us/be-in-touch). Update here if the site changes.
-  const SERVICE_DESKS = [
-    { label: 'רכב', phone: '*5432', tel: '*5432', email: 'Card@fnx.co.il' },
-    { label: 'דירה', phone: '*5432', tel: '*5432', email: 'apartmentd@fnx.co.il' },
-    { label: 'נסיעות לחו״ל', phone: '03-7141000', tel: '037141000', email: 'Traveld@fnx.co.il' },
-    { label: 'חירום בחו״ל (24/7)', phone: '050-224-1953', tel: '0502241953', email: 'info@medassis.org' }
-  ];
-  const HOURS = "ימים א'-ה', 8:30-16:00";
-
+  // Contact options as listed on the site's service pages (car/apartment desk *5432, WhatsApp,
+  // digital@fnx.co.il, hours). Every topic's own desk is on the contact page linked last.
   function contactCards() {
     const ic = (name) => h('span', { html: ICON[name], style: 'display:contents' });
-    const rows = SERVICE_DESKS.map((d) => h('div', { class: 'desk' }, [
-      h('span', { class: 'desk-label', text: d.label }),
-      h('a', { class: 'desk-link', href: 'tel:' + d.tel }, [ic('phone'), h('span', { text: d.phone, dir: 'ltr' })]),
-      h('a', { class: 'desk-link', href: 'mailto:' + d.email }, [ic('mail'), h('span', { text: d.email, dir: 'ltr' })])
-    ]));
+    const card = (href, icon, label, value, ltr, ext) => h('a', Object.assign({ class: 'ct', href: href }, ext ? { target: '_blank', rel: 'noopener' } : {}), [
+      ic(icon), h('span', null, [h('small', { text: label }), h('b', ltr ? { text: value, dir: 'ltr' } : { text: value })])
+    ]);
     return h('div', { class: 'contact-wrap' }, [
       h('div', { class: 'contacts' }, [
-        h('a', { class: 'ct', href: 'https://wa.me/972549893455', target: '_blank', rel: 'noopener' }, [ic('wa'),
-          h('span', null, [h('small', { text: 'וואטסאפ (לכל הנושאים)' }), h('b', { text: '054-9893455', dir: 'ltr' })])]),
-        h('a', { class: 'ct', href: CONTACT_URL, target: '_blank', rel: 'noopener' }, [ic('ext'),
-          h('span', null, [h('small', { text: 'באתר' }), h('b', { text: 'דף יצירת קשר' })])])
+        card('tel:*5432', 'phone', 'טלפון', '*5432', true),
+        card('https://wa.me/972549893455', 'wa', 'וואטסאפ', '054-9893455', true, true),
+        card('mailto:digital@fnx.co.il', 'mail', 'מייל', 'digital@fnx.co.il', true),
+        card(CONTACT_URL, 'ext', 'באתר הפניקס', 'כל דרכי הקשר', false, true)
       ]),
-      h('div', { class: 'desks' }, rows),
-      h('p', { class: 'hours' }, [ic('clock'), h('span', { text: 'שעות פעילות מוקדי השירות: ' + HOURS })])
+      h('p', { class: 'hours' }, [ic('clock'), h('span', { text: "שעות פעילות: ימים א'-ה', 8:30-16:00" })])
     ]);
   }
 
