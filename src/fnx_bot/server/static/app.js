@@ -306,7 +306,7 @@
   }
 
   // Contact options as listed on the site's service pages (car/apartment desk *5432, WhatsApp,
-  // digital@fnx.co.il, hours). Every topic's own desk is on the contact page linked last.
+  // hours). Emails differ per topic, so they are left to the contact page linked last.
   function contactCards() {
     const ic = (name) => h('span', { html: ICON[name], style: 'display:contents' });
     const card = (href, icon, label, value, ltr, ext) => h('a', Object.assign({ class: 'ct', href: href }, ext ? { target: '_blank', rel: 'noopener' } : {}), [
@@ -316,7 +316,6 @@
       h('div', { class: 'contacts' }, [
         card('tel:*5432', 'phone', 'טלפון', '*5432', true),
         card('https://wa.me/972549893455', 'wa', 'וואטסאפ', '054-9893455', true, true),
-        card('mailto:digital@fnx.co.il', 'mail', 'מייל', 'digital@fnx.co.il', true),
         card(CONTACT_URL, 'ext', 'באתר הפניקס', 'כל דרכי הקשר', false, true)
       ]),
       h('p', { class: 'hours' }, [ic('clock'), h('span', { text: "שעות פעילות: ימים א'-ה', 8:30-16:00" })])
