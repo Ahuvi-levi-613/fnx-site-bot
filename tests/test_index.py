@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 
@@ -58,6 +59,10 @@ def test_missing_key():
         GeminiEmbedder(api_key="", session=FakeSession()).embed_many(["a"])
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="chromadb's Rust client segfaults under pytest on Windows (not in a plain script); runs fine in CI on Linux.",
+)
 def test_chroma_rebuild_and_query(tmp_path):
     pytest.importorskip("chromadb")
     from fnx_bot.index.store import ChromaStore

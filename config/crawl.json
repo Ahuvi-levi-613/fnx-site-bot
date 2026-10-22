@@ -32,7 +32,23 @@
     ".mp4",
     ".zip",
     ".docx",
-    ".xlsx"
+    ".xlsx",
+    "/customer-service/pets-services",
+    "/customer-service/mortgage-services",
+    "/customer-service/gemel-ishtlamutfund",
+    "/customer-service/life-insurance",
+    "/customer-service/savings",
+    "/customer-service/pension-savings",
+    "/customer-service/health-insurance",
+    "/customer-service/info_for_business",
+    "/claims-customer-service/claims-health-insurance",
+    "/claims-customer-service/claims-all-embracing-pension",
+    "/claims-customer-service/pension-benefits",
+    "/claims-customer-service/claims-life-insurance",
+    "/claims-customer-service/claims-pets",
+    "/claims-customer-service/claims-business-insurance",
+    "/claims-customer-service/claims-personal-accident-insurance",
+    "/claims-customer-service/claims-supportive-insurance"
   ],
   "include_pdfs": false,
   "chunk_max_chars": 1200,
@@ -93,12 +109,9 @@
     "service": {
       "label": "שירות לקוחות",
       "url_keywords": [
-        "contact",
         "contact us",
         "customer service",
-        "service",
         "sherut",
-        "faq",
         "צור קשר",
         "שירות"
       ],
