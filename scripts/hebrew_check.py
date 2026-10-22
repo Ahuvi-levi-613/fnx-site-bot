@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Day-one Hebrew check: does Gemini Embedding 2 match Hebrew questions to the right Hebrew passage?
+"""Day-one Hebrew check: do the embeddings match Hebrew questions to the right Hebrew passage?
 
-Needs GEMINI_API_KEY in .env. Prints, for each question, which passage scored highest.
+Needs VOYAGE_API_KEY in .env. Prints, for each question, which passage scored highest.
 The passages below are made-up test sentences, not content from the site.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ for _stream in (sys.stdout, sys.stderr):
 from dotenv import load_dotenv  # noqa: E402
 
 from fnx_bot.config import ROOT  # noqa: E402
-from fnx_bot.index.embed import EmbedError, GeminiEmbedder, document_text, query_text  # noqa: E402
+from fnx_bot.index.embed import EmbedError, VoyageEmbedder  # noqa: E402
 
 PASSAGES = [
     "כדי להגיש תביעה על נזקי מים בדירה יש לצלם את הנזק ולפנות למוקד התביעות.",
@@ -42,10 +42,10 @@ def cos(a: list[float], b: list[float]) -> float:
 
 def main() -> int:
     load_dotenv(ROOT / ".env")
-    emb = GeminiEmbedder()
+    emb = VoyageEmbedder()
     try:
-        pv = emb.embed_many([document_text("none", p) for p in PASSAGES])
-        qv = emb.embed_many([query_text(q) for q, _ in QUESTIONS])
+        pv = emb.embed_many(PASSAGES, input_type="document")
+        qv = emb.embed_many([q for q, _ in QUESTIONS], input_type="query")
     except EmbedError as e:
         print(f"Error: {e}")
         return 1
