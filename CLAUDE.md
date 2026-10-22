@@ -25,7 +25,7 @@ The challenge rules in `docs/SPEC.md` ("Challenge rules") are non-negotiable; ch
 ## Layout
 - `config/crawl.json` areas (car, apartment, travel, service), URL/heading keywords, chunk size
 - `scripts/crawl.py map|fetch|process|all` -> `data/urls.txt`, `data/raw/`, `data/chunks.jsonl`, `data/stats.json`
-- `scripts/build_index.py [--query "..."]` -> Gemini Embedding 2 -> `data/chroma`
+- `scripts/build_index.py [--query "..."]` -> Voyage AI embeddings -> `data/chroma`
 - `scripts/hebrew_check.py` embedding sanity check
 - `data/` is git-ignored output
 

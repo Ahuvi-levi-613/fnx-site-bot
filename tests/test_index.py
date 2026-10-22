@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from fnx_bot.index.embed import EmbedError, GeminiEmbedder, document_text, query_text
+from fnx_bot.index.embed import EmbedError, GeminiEmbedder, VoyageEmbedder, document_text, query_text
 
 
 class Resp:
@@ -40,7 +40,7 @@ def test_prefixes_for_gemini_embedding_2():
 def test_batches_cache_and_retry(tmp_path):
     s = FakeSession(fail_first=1)
     cache = tmp_path / "cache.jsonl"
-    e = GeminiEmbedder(api_key="k", model="gemini-embedding-2", dim=3, cache_path=cache, batch_size=2, session=s)
+    e = GeminiEmbedder(api_key="k", model="gemini-embedding-2", dim=3, cache_path=cache, batch_size=2, batch_pause=0, session=s)
     vecs = e.embed_many(["a", "b", "c"])
     assert len(vecs) == 3
     assert len(s.calls) == 3  # 429, then 2 batches (2 + 1)
@@ -57,6 +57,53 @@ def test_batches_cache_and_retry(tmp_path):
 def test_missing_key():
     with pytest.raises(EmbedError):
         GeminiEmbedder(api_key="", session=FakeSession()).embed_many(["a"])
+
+
+class FakeVoyageSession:
+    """Answers /v1/embeddings with one 3-dim vector per input, index fields reversed (to check
+    we sort by index rather than assume response order); can fail first with 429."""
+
+    def __init__(self, fail_first=0):
+        self.calls, self.fail_first = [], fail_first
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.calls.append((url, json))
+        if self.fail_first:
+            self.fail_first -= 1
+            return Resp(429, headers={"Retry-After": "0"})
+        n = len(json["input"])
+        data = [{"embedding": [float(i), 1.0, 0.0], "index": i} for i in range(n)]
+        return Resp(200, {"data": list(reversed(data))})
+
+
+def test_voyage_batches_cache_and_retry(tmp_path):
+    s = FakeVoyageSession(fail_first=1)
+    cache = tmp_path / "cache.jsonl"
+    e = VoyageEmbedder(api_key="k", model="voyage-3.5", dim=3, cache_path=cache, batch_size=2, batch_pause=0, session=s)
+    vecs = e.embed_many(["a", "b", "c"], input_type="document")
+    assert len(vecs) == 3
+    assert vecs[0] == [0.0, 1.0, 0.0] and vecs[1] == [1.0, 1.0, 0.0]  # order preserved despite reversed response
+    assert len(s.calls) == 3  # 429, then 2 batches (2 + 1)
+    url, body = s.calls[-1]
+    assert url == "https://api.voyageai.com/v1/embeddings"
+    assert body["model"] == "voyage-3.5" and body["input_type"] == "document" and body["output_dimension"] == 3
+
+    # A new embedder reads the cache: nothing is sent again.
+    s2 = FakeVoyageSession()
+    e2 = VoyageEmbedder(api_key="k", model="voyage-3.5", dim=3, cache_path=cache, session=s2)
+    assert e2.embed_many(["a", "b", "c"], input_type="document") == vecs and s2.calls == []
+
+
+def test_voyage_query_uses_input_type():
+    s = FakeVoyageSession()
+    e = VoyageEmbedder(api_key="k", dim=3, session=s)
+    e.embed_query("מה עושים?")
+    assert s.calls[0][1]["input_type"] == "query"
+
+
+def test_missing_key_voyage():
+    with pytest.raises(EmbedError):
+        VoyageEmbedder(api_key="", session=FakeVoyageSession()).embed_many(["a"])
 
 
 @pytest.mark.skipif(
