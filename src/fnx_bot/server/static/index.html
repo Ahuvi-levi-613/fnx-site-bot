@@ -2,73 +2,64 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<title>בוט הפניקס — דף בדיקה</title>
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; }
-  h1 { font-size: 1.1rem; color: #555; font-weight: normal; }
-  #log { border: 1px solid #ccc; border-radius: 6px; padding: 1rem; min-height: 240px;
-         margin-bottom: 1rem; white-space: pre-wrap; overflow-y: auto; max-height: 60vh; }
-  .q { font-weight: bold; margin-top: 1rem; }
-  .a { margin: 0.3rem 0; }
-  .src { color: #666; font-size: 0.85em; }
-  .src a { color: #666; }
-  form { display: flex; gap: 0.5rem; }
-  input { flex: 1; padding: 0.6rem; font-size: 1rem; }
-  button { padding: 0.6rem 1.2rem; }
-</style>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>פני - עוזרת אתר הפניקס</title>
+<link rel="icon" href="/static/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<h1>בוט הפניקס — דף בדיקה זמני (העיצוב הסופי יגיע בנפרד)</h1>
-<div id="log"></div>
-<form id="f">
-  <input id="q" placeholder="שאלי משהו..." autocomplete="off">
-  <button type="submit">שלח</button>
-</form>
-<script>
-const log = document.getElementById("log");
-const form = document.getElementById("f");
-const input = document.getElementById("q");
-let history = [];
+<div class="app" id="app">
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const question = input.value.trim();
-  if (!question) return;
-  input.value = "";
-  const qDiv = document.createElement("div");
-  qDiv.className = "q";
-  qDiv.textContent = "את/ה: " + question;
-  log.appendChild(qDiv);
+  <header class="top">
+    <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="שיחות קודמות" aria-controls="sidebar" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <a class="home-link" id="homeLink" href="/" aria-label="למסך הבית של פני"><img class="logo" src="/static/fnx-logo.png" width="119" height="42" alt="הפניקס"></a>
+    <span class="divider" aria-hidden="true"></span>
+    <div class="title"><b>פני</b><small>העוזרת הדיגיטלית של אתר הפניקס</small></div>
+    <span class="trust"><i aria-hidden="true"></i>עונה רק מתוך fnx.co.il</span>
+  </header>
 
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({question, history}),
-  });
-  const data = await res.json();
-  history.push({question, answer: data.answer});
+  <aside class="sidebar" id="sidebar">
+    <button class="new-chat" id="newChat" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      שיחה חדשה
+    </button>
+    <p class="side-label">שיחות קודמות</p>
+    <nav class="chat-list" id="chatList" aria-label="שיחות קודמות"></nav>
+    <div class="side-foot">
+      <p>השיחות נשמרות רק בדפדפן הזה.</p>
+      <button type="button" class="link-btn" id="clearAll">מחיקת כל השיחות</button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
 
-  const aDiv = document.createElement("div");
-  aDiv.className = "a";
-  aDiv.textContent = data.answer;
-  log.appendChild(aDiv);
+  <main class="main">
+    <div class="backbar" id="backbar" hidden>
+      <button class="back" id="backBtn" type="button" aria-label="חזרה" title="חזרה">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>
+      </button>
+      <span class="demo-badge" id="demoBadge" hidden>הדגמה · כך פני עונה</span>
+    </div>
+    <div class="thread" id="thread"><div class="inner" id="inner"></div></div>
+    <form class="composer" id="form" autocomplete="off">
+      <div class="composer-in">
+        <div class="ask" id="ask">
+          <label for="q" class="sr">שאלה לפני</label>
+          <input id="q" type="text" maxlength="500">
+          <button class="send" id="send" type="submit" aria-label="שליחה">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></svg>
+          </button>
+        </div>
+        <p class="fine">פני עונה רק ממידע שמופיע באתר הפניקס. אין צורך למסור פרטים אישיים.</p>
+      </div>
+    </form>
+  </main>
 
-  if (data.sources.length) {
-    const srcDiv = document.createElement("div");
-    srcDiv.className = "src";
-    srcDiv.textContent = "מקורות: ";
-    data.sources.forEach((s, i) => {
-      if (i > 0) srcDiv.append(", ");
-      const a = document.createElement("a");
-      a.href = s.url;
-      a.target = "_blank";
-      a.textContent = s.page_title || s.url;
-      srcDiv.appendChild(a);
-    });
-    log.appendChild(srcDiv);
-  }
-  log.scrollTop = log.scrollHeight;
-});
-</script>
+</div>
+<script src="/static/app.js"></script>
 </body>
 </html>
