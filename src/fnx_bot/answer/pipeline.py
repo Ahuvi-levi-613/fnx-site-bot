@@ -42,13 +42,26 @@ class AnswerPipeline:
         self.reranker = reranker
         self.llm = llm
 
-    def answer(self, question: str, area: str | None = None) -> AnswerResult:
-        candidates = self.retriever.search(question, k=10, area=area)
+    def answer(self, question: str, area: str | None = None, history: list[dict] | None = None) -> AnswerResult:
+        # Search with the question alone AND combined with the previous one, then merge: a
+        # follow-up like "ומה עם רכב?" can be too bare to retrieve well on its own, but
+        # combining it with the prior question can drag in that question's own topic too -
+        # the union covers both without needing an extra LLM call to rewrite the question.
+        queries = [question]
+        if history:
+            queries.append(f"{history[-1]['question']} {question}")
+
+        candidates_by_id: dict[str, dict] = {}
+        for q in queries:
+            for c in self.retriever.search(q, k=10, area=area):
+                candidates_by_id.setdefault(c["id"], c)
+        candidates = list(candidates_by_id.values())
         if not candidates:
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
 
+        rerank_query = queries[-1]  # the most context-rich variant (combined, if there was history)
         try:
-            ranked = self.reranker.rerank(question, [c["text"] for c in candidates], top_n=RERANK_TOP_N)
+            ranked = self.reranker.rerank(rerank_query, [c["text"] for c in candidates], top_n=RERANK_TOP_N)
         except RerankError:
             return AnswerResult(text=SERVICE_UNAVAILABLE_MESSAGE, sources=[], grounded=False)
         top = [candidates[r.index] for r in ranked if r.relevance_score >= MIN_RELEVANCE]
@@ -56,7 +69,7 @@ class AnswerPipeline:
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
 
         try:
-            response = self.llm.generate(SYSTEM_PROMPT, build_user_prompt(question, top))
+            response = self.llm.generate(SYSTEM_PROMPT, build_user_prompt(question, top, history=history))
         except LLMError:
             return AnswerResult(text=SERVICE_UNAVAILABLE_MESSAGE, sources=[], grounded=False)
         allowed = {p["url"] for p in top}

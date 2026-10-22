@@ -13,8 +13,8 @@
 
 ```
 איסוף:   fnx.co.il ─► מיפוי (robots + sitemap, סינון לפי תחום) ─► Firecrawl / גיבוי ישיר ─► ניקוי ─► חיתוך ─► data/chunks.jsonl
-אינדקס:  chunks ─► Gemini Embedding 2 ─► Chroma מקומי (data/chroma)
-מענה:    שאלה ─► אחזור היברידי ─► Cohere Rerank ─► Gemini Flash (גיבוי: Groq, OpenRouter) ─► FastAPI ─► דף צ'אט מימין לשמאל
+אינדקס:  chunks ─► Voyage AI embeddings (גיבוי ל-Gemini Embedding 2, שהמכסה החינמית שלו קטנה מדי) ─► Chroma מקומי (data/chroma)
+מענה:    שאלה ─► אחזור היברידי (סמנטי + מילות מפתח) ─► Cohere Rerank ─► Gemini Flash (גיבוי: Groq, OpenRouter) ─► FastAPI ─► דף צ'אט מימין לשמאל
 ```
 
 כלל הברזל: אין מקור, אין תשובה.
@@ -25,7 +25,7 @@
 | --- | --- | --- |
 | 1 | הקמה, סריקת התחומים, ניקוי, חיתוך, אינדקס ב-Chroma | ✅ קוד מוכן, ממתין להרצה על האתר |
 | 2 | שכבת התשובה: אחזור היברידי, דירוג מחדש, פרומפט מחייב, בדיקת מקור, מעבר לגיבוי | ⏳ |
-| 3 | שרת FastAPI, דף צ'אט מעוצב, כרטיסי מקור, זיכרון שיחה | ⏳ |
+| 3 | שרת FastAPI, דף צ'אט מעוצב, כרטיסי מקור, זיכרון שיחה | ⏳ (שרת + דף בדיקה זמני מוכנים, עיצוב סופי בנפרד) |
 | 4 | 30 שאלות בדיקה + 5 שיחות המשך, שיפורים והגשה | ⏳ |
 
 ## התקנה (PyCharm)
@@ -72,6 +72,28 @@ python scripts/build_index.py --query "איך מגישים תביעה על נז�
 - ב-Chroma כל קטע נשמר עם הכתובת, הכותרת, התחום ותאריך האיסוף, כדי שכל תשובה תוכל לצטט מקור.
 - ההטמעות נשמרות במטמון (`data/embeddings_cache.jsonl`), כך שבנייה חוזרת לא מבזבזת מכסה על קטעים שלא השתנו.
 
+## יום 2: שאלה ותשובה בטרמינל
+
+```bash
+python scripts/ask.py "איך מגישים תביעה על נזקי מים?"
+python scripts/ask.py "..." --area apartment    # מגביל לתחום: car, apartment, travel, service
+```
+
+מריץ אחזור היברידי + Cohere Rerank + LLM (Gemini, גיבוי Groq ואז OpenRouter), ומדפיס תשובה עם קישורי מקור.
+אם המידע לא נמצא באתר, מוצגת הודעה מפורשת עם קישור לעמוד "צור קשר".
+
+## יום 3: הרצת שרת הצ'אט
+
+```bash
+python scripts/serve.py
+```
+
+ואז פותחים בדפדפן: **http://localhost:8000**
+
+זה דף בדיקה זמני בלבד (בלי העיצוב הסופי) — מטרתו לוודא שהשרת, זיכרון השיחה וכרטיסי המקור עובדים.
+נקודת הקצה: `POST /api/chat` עם `{"question": "...", "history": [{"question": "...", "answer": "..."}], "area": "..."}`,
+מחזירה `{"answer": "...", "sources": [{"url": "...", "page_title": "..."}], "grounded": true/false}`.
+
 ## בדיקות
 
 ```bash
@@ -84,10 +106,11 @@ python -m pytest -q
 
 | משתנה | מתי | איפה מקבלים |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | יום 1 (הטמעות), יום 2 (מודל שפה) | aistudio.google.com |
+| `VOYAGE_API_KEY` | יום 1 (הטמעות) | dashboard.voyageai.com |
+| `GEMINI_API_KEY` | יום 2 (מודל שפה) | aistudio.google.com |
 | `FIRECRAWL_API_KEY` | יום 1, לא חובה | firecrawl.dev |
 | `COHERE_API_KEY` | יום 2 | dashboard.cohere.com (מפתח ניסיון) |
-| `GROQ_API_KEY`, `OPENROUTER_API_KEY` | יום 2, גיבוי | console.groq.com, openrouter.ai |
+| `GROQ_API_KEY`, `OPENROUTER_API_KEY` | יום 2, גיבוי ל-LLM | console.groq.com, openrouter.ai |
 
 מפתחות נשמרים רק ב-`.env`, לא בקוד ולא ב-git.
 
@@ -98,8 +121,12 @@ config/crawl.json          תחומים, סינון וחיתוך
 scripts/crawl.py           איסוף: map | fetch | process | all
 scripts/build_index.py     בניית האינדקס ב-Chroma, ובדיקת חיפוש
 scripts/hebrew_check.py    בדיקת עברית למודל ההטמעה
+scripts/ask.py             שאלה בודדת בטרמינל (יום 2)
+scripts/serve.py           הרצת שרת הצ'אט (יום 3)
 src/fnx_bot/ingest/        sitemap.py · fetch.py · clean.py · chunk.py · pipeline.py
-src/fnx_bot/index/         embed.py (Gemini) · store.py (Chroma)
+src/fnx_bot/index/         embed.py (Voyage + Gemini) · store.py (Chroma)
+src/fnx_bot/answer/        retrieve.py · rerank.py · llm.py · prompt.py · pipeline.py
+src/fnx_bot/server/        app.py (FastAPI) · static/index.html (דף בדיקה זמני)
 tests/                     בדיקות + קבצי דוגמה
 data/                      פלט (לא נכנס ל-git)
 ```

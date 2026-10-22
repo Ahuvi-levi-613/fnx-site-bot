@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>בוט הפניקס — דף בדיקה</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.1rem; color: #555; font-weight: normal; }
+  #log { border: 1px solid #ccc; border-radius: 6px; padding: 1rem; min-height: 240px;
+         margin-bottom: 1rem; white-space: pre-wrap; overflow-y: auto; max-height: 60vh; }
+  .q { font-weight: bold; margin-top: 1rem; }
+  .a { margin: 0.3rem 0; }
+  .src { color: #666; font-size: 0.85em; }
+  .src a { color: #666; }
+  form { display: flex; gap: 0.5rem; }
+  input { flex: 1; padding: 0.6rem; font-size: 1rem; }
+  button { padding: 0.6rem 1.2rem; }
+</style>
+</head>
+<body>
+<h1>בוט הפניקס — דף בדיקה זמני (העיצוב הסופי יגיע בנפרד)</h1>
+<div id="log"></div>
+<form id="f">
+  <input id="q" placeholder="שאלי משהו..." autocomplete="off">
+  <button type="submit">שלח</button>
+</form>
+<script>
+const log = document.getElementById("log");
+const form = document.getElementById("f");
+const input = document.getElementById("q");
+let history = [];
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = input.value.trim();
+  if (!question) return;
+  input.value = "";
+  const qDiv = document.createElement("div");
+  qDiv.className = "q";
+  qDiv.textContent = "את/ה: " + question;
+  log.appendChild(qDiv);
+
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({question, history}),
+  });
+  const data = await res.json();
+  history.push({question, answer: data.answer});
+
+  const aDiv = document.createElement("div");
+  aDiv.className = "a";
+  aDiv.textContent = data.answer;
+  log.appendChild(aDiv);
+
+  if (data.sources.length) {
+    const srcDiv = document.createElement("div");
+    srcDiv.className = "src";
+    srcDiv.textContent = "מקורות: ";
+    data.sources.forEach((s, i) => {
+      if (i > 0) srcDiv.append(", ");
+      const a = document.createElement("a");
+      a.href = s.url;
+      a.target = "_blank";
+      a.textContent = s.page_title || s.url;
+      srcDiv.appendChild(a);
+    });
+    log.appendChild(srcDiv);
+  }
+  log.scrollTop = log.scrollHeight;
+});
+</script>
+</body>
+</html>

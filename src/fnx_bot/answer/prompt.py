@@ -31,18 +31,25 @@ SYSTEM_PROMPT = """את עוזרת וירטואלית של חברת הביטוח
 
 אורך התשובה מתאים לשאלה: תשובה קצרה לשאלה פשוטה; שלבים מסודרים לתהליך (מה להכין, איפה להגיש, מה קורה אחר כך).
 אם השאלה מעורפלת מדי כדי לדעת איזה תחום (רכב/דירה/נסיעות/שירות), שאלי שאלה קצרה להבהרה במקום לנחש.
+אם מופיעה למטה היסטוריית שיחה קודמת, התייחסי אליה כדי להבין שאלות המשך (למשל "ומה עם רכב?" אחרי שיחה על דירה).
 """
 
 
-def build_user_prompt(question: str, passages: list[dict]) -> str:
+def build_user_prompt(question: str, passages: list[dict], history: list[dict] | None = None) -> str:
+    parts = []
+    if history:
+        convo = "\n".join(f"משתמש: {h['question']}\nעוזרת: {h['answer']}" for h in history)
+        parts.append(f"היסטוריית השיחה עד כה:\n{convo}")
     if not passages:
-        return f"שאלה: {question}\n\nלא נמצאו קטעים רלוונטיים באתר."
-    blocks = []
-    for p in passages:
-        head = f" > {p['heading_path']}" if p.get("heading_path") else ""
-        blocks.append(f"[מקור: {p['url']}]\nכותרת: {p.get('page_title', '')}{head}\n{p['text']}")
-    sources = "\n\n---\n\n".join(blocks)
-    return f"קטעים מהאתר:\n\n{sources}\n\n---\n\nשאלה: {question}"
+        parts.append(f"שאלה נוכחית: {question}\n\nלא נמצאו קטעים רלוונטיים באתר.")
+    else:
+        blocks = []
+        for p in passages:
+            head = f" > {p['heading_path']}" if p.get("heading_path") else ""
+            blocks.append(f"[מקור: {p['url']}]\nכותרת: {p.get('page_title', '')}{head}\n{p['text']}")
+        sources = "\n\n---\n\n".join(blocks)
+        parts.append(f"קטעים מהאתר:\n\n{sources}\n\n---\n\nשאלה נוכחית: {question}")
+    return "\n\n===\n\n".join(parts)
 
 
 _URL_RE = re.compile(r"https?://\S+")
