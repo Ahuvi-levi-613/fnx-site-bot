@@ -78,3 +78,27 @@ Reference dialog from the guidelines:
 ## Hackathon submission (from the challenge guidelines)
 Working chat; live demo of 20-30 questions; source code + run instructions; short summary: how content was collected,
 how the passage is chosen, limits, and how content is refreshed.
+
+## Deviations from this spec (log)
+
+Dated, with the reason, so later decisions have the context behind them.
+
+- **2026-10-22 - Embeddings: Voyage AI instead of Gemini Embedding 2.** Changed because Gemini
+  Embedding 2's free tier caps at 1,000 requests/day, which can't embed a 6,243-chunk index in
+  reasonable time. Voyage AI (already the documented backup) is the one actually used;
+  `GeminiEmbedder` stays in the code and tested, in case the primary becomes usable again.
+- **2026-10-22 - Voyage AI needs a payment method on file to run at a usable speed.** Changed
+  because without one, Voyage throttles to 3 requests/min and 10K tokens/min (the free
+  200M-token allowance still applies either way - a card only removes the throttle, it does not
+  spend money within that allowance).
+- **2026-10-22 - Groq is not actually usable as an LLM fallback on this dev machine.** Changed
+  because the NetFree content filter here blocks POST requests to Groq's `chat/completions`
+  endpoint specifically (GET requests, e.g. listing models, go through fine). OpenRouter is
+  unaffected. The code still tries Gemini -> Groq -> OpenRouter in that order (harmless to try
+  Groq and fall through), but in practice OpenRouter carries the real backup role on this
+  machine - worth knowing before assuming the fallback chain works end to end from a demo on
+  the same network.
+- **2026-10-22 - OpenRouter default model changed to `recursive/flint-v1.0:free`.** Changed
+  because the previously assumed free model (`meta-llama/llama-3.3-70b-instruct:free`) stopped
+  being offered for free. Verified the replacement with a real Hebrew prompt. OpenRouter's free
+  lineup shifts over time, so this is a one-line env var (`OPENROUTER_MODEL`) if it happens again.
