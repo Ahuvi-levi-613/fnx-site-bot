@@ -47,8 +47,8 @@ def main() -> int:
     print(result.text)
     if result.sources:
         print("\nמקורות:")
-        for u in result.sources:
-            print(f"  {u}")
+        for s in result.sources:
+            print(f"  {s.page_title} — {s.url}")
     return 0
 
 

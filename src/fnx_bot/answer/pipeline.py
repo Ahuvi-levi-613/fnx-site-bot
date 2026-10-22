@@ -24,9 +24,15 @@ MIN_RELEVANCE = 0.1  # below this, treat the top rerank hit as noise, not an act
 
 
 @dataclass
+class Source:
+    url: str
+    page_title: str
+
+
+@dataclass
 class AnswerResult:
     text: str
-    sources: list[str]
+    sources: list[Source]
     grounded: bool  # False means NOT_ON_SITE_MESSAGE was returned
 
 
@@ -58,5 +64,12 @@ class AnswerPipeline:
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
         # Only the pages the model actually cited, not every candidate it was handed -
         # the SPEC rule is "the link points to the page the answer came from".
-        used = sorted({u for u in cited_urls(response.text) if u in allowed})
-        return AnswerResult(text=response.text, sources=used, grounded=True)
+        cited = {u for u in cited_urls(response.text) if u in allowed}
+        seen: set[str] = set()
+        sources = []
+        for p in top:
+            if p["url"] in cited and p["url"] not in seen:
+                seen.add(p["url"])
+                sources.append(Source(url=p["url"], page_title=p.get("page_title", "")))
+        sources.sort(key=lambda s: s.url)
+        return AnswerResult(text=response.text, sources=sources, grounded=True)

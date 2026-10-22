@@ -3,7 +3,7 @@ import json
 import pytest
 
 from fnx_bot.answer.llm import LLMClient, LLMError, LLMResponse
-from fnx_bot.answer.pipeline import AnswerPipeline
+from fnx_bot.answer.pipeline import AnswerPipeline, Source
 from fnx_bot.answer.prompt import NOT_ON_SITE_MESSAGE, SERVICE_UNAVAILABLE_MESSAGE, build_user_prompt, is_grounded
 from fnx_bot.answer.rerank import CohereReranker, RerankError, RerankResult
 from fnx_bot.answer.retrieve import HybridRetriever
@@ -254,7 +254,7 @@ def test_pipeline_returns_grounded_answer():
     )
     r = p.answer("שאלה")
     assert r.grounded is True
-    assert r.sources == ["https://www.fnx.co.il/car"]
+    assert r.sources == [Source(url="https://www.fnx.co.il/car", page_title="t")]
 
 
 def test_pipeline_sources_only_lists_urls_the_model_actually_cited():
@@ -271,7 +271,7 @@ def test_pipeline_sources_only_lists_urls_the_model_actually_cited():
     )
     r = p.answer("שאלה")
     assert r.grounded is True
-    assert r.sources == ["https://www.fnx.co.il/car"]  # not c2, even though it was a candidate too
+    assert r.sources == [Source(url="https://www.fnx.co.il/car", page_title="t")]  # not c2
 
 
 def test_pipeline_no_candidates_returns_not_on_site():
