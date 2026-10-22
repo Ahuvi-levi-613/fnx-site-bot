@@ -228,6 +228,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .ct small { font-size: 11.5px; color: var(--faint); }
 .ct b { font-size: 14px; font-weight: 700; }
 
+.contact-wrap { display: flex; flex-direction: column; gap: 10px; }
+.ct b { overflow-wrap: anywhere; }
+.hours { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+.hours svg { width: 15px; height: 15px; flex-shrink: 0; color: var(--accent-ink); }
+
 /* typing */
 .typing { display: flex; gap: 10px; align-items: center; }
 .dots { display: flex; align-items: center; gap: 6px; background: #fff; border: 1.5px solid var(--accent-line); border-radius: 999px; padding: 9px 16px; }

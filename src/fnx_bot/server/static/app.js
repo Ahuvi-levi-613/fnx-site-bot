@@ -18,6 +18,8 @@
     car: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16l1.5-5.2A2 2 0 0 1 8.4 9.4h7.2a2 2 0 0 1 1.9 1.4L19 16"/><path d="M4 16h16v3H4z"/><circle cx="7.5" cy="19" r="1.5"/><circle cx="16.5" cy="19" r="1.5"/></svg>',
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
     plane: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 16l20-6-2-3-7 2-5-5-2 1 3 5-5 1.5-2-2-1.5.5z"/><path d="M3 21h18"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17 5v14L6 12z"/></svg>',
     headset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg>'
   };
@@ -303,14 +305,20 @@
     });
   }
 
+  // Contact options as listed on the site's service pages (car/apartment desk *5432, WhatsApp,
+  // hours). Emails differ per topic, so they are left to the contact page linked last.
   function contactCards() {
-    return h('div', { class: 'contacts' }, [
-      h('a', { class: 'ct', href: 'tel:*3455' }, [h('span', { html: ICON.phone, style: 'display:contents' }),
-        h('span', null, [h('small', { text: 'טלפון' }), h('b', { text: '*3455', dir: 'ltr' })])]),
-      h('a', { class: 'ct', href: 'https://wa.me/972549893455', target: '_blank', rel: 'noopener' }, [h('span', { html: ICON.wa, style: 'display:contents' }),
-        h('span', null, [h('small', { text: 'וואטסאפ' }), h('b', { text: '054-9893455', dir: 'ltr' })])]),
-      h('a', { class: 'ct', href: CONTACT_URL, target: '_blank', rel: 'noopener' }, [h('span', { html: ICON.ext, style: 'display:contents' }),
-        h('span', null, [h('small', { text: 'באתר' }), h('b', { text: 'דף יצירת קשר' })])])
+    const ic = (name) => h('span', { html: ICON[name], style: 'display:contents' });
+    const card = (href, icon, label, value, ltr, ext) => h('a', Object.assign({ class: 'ct', href: href }, ext ? { target: '_blank', rel: 'noopener' } : {}), [
+      ic(icon), h('span', null, [h('small', { text: label }), h('b', ltr ? { text: value, dir: 'ltr' } : { text: value })])
+    ]);
+    return h('div', { class: 'contact-wrap' }, [
+      h('div', { class: 'contacts' }, [
+        card('tel:*5432', 'phone', 'טלפון', '*5432', true),
+        card('https://wa.me/972549893455', 'wa', 'וואטסאפ', '054-9893455', true, true),
+        card(CONTACT_URL, 'ext', 'באתר הפניקס', 'כל דרכי הקשר', false, true)
+      ]),
+      h('p', { class: 'hours' }, [ic('clock'), h('span', { text: "שעות פעילות: ימים א'-ה', 8:30-16:00" })])
     ]);
   }
 
