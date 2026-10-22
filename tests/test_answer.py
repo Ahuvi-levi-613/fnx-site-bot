@@ -196,6 +196,18 @@ def test_build_user_prompt_no_passages():
     assert "שאלה?" in p and "לא נמצאו" in p
 
 
+def test_build_user_prompt_includes_history_when_given():
+    passages = [{"url": "https://x/1", "page_title": "t", "heading_path": "", "text": "content"}]
+    history = [{"question": "שאלה ישנה", "answer": "תשובה ישנה"}]
+    p = build_user_prompt("שאלה חדשה", passages, history=history)
+    assert "שאלה ישנה" in p and "תשובה ישנה" in p and "שאלה חדשה" in p
+
+
+def test_build_user_prompt_no_history_section_by_default():
+    p = build_user_prompt("שאלה", [{"url": "u", "page_title": "t", "heading_path": "", "text": "c"}])
+    assert "היסטוריי" not in p
+
+
 def test_is_grounded_true_when_citing_a_given_url():
     assert is_grounded("תשובה טובה. https://www.fnx.co.il/car", {"https://www.fnx.co.il/car"})
 
@@ -278,6 +290,86 @@ def test_pipeline_no_candidates_returns_not_on_site():
     p = AnswerPipeline(retriever=FakeRetriever([]), reranker=FakeReranker([]), llm=FakeLLM("x"))
     r = p.answer("שאלה")
     assert r.grounded is False and r.text == NOT_ON_SITE_MESSAGE
+
+
+# --- conversation memory (history) -------------------------------------------------
+
+
+class FakeRetrieverByQuery:
+    """Returns different candidates per exact query string, and records every query it got."""
+
+    def __init__(self, by_query):
+        self.by_query = by_query
+        self.queries = []
+
+    def search(self, query, k=10, area=None):
+        self.queries.append(query)
+        return self.by_query.get(query, [])
+
+
+class RecordingReranker:
+    def __init__(self, results):
+        self._results = results
+        self.calls = []  # (query, documents)
+
+    def rerank(self, query, documents, top_n=None):
+        self.calls.append((query, documents))
+        return self._results
+
+
+class RecordingLLM:
+    def __init__(self, text):
+        self._text = text
+        self.prompts = []
+
+    def generate(self, system, prompt):
+        self.prompts.append(prompt)
+        return LLMResponse(text=self._text, provider="fake")
+
+
+CAR = {"id": "car1", "url": "https://www.fnx.co.il/car", "text": "תוכן רכב", "score": 1.0,
+       "page_title": "רכב", "heading_path": "h", "area": "car", "chunk_index": 0, "crawled_at": "d"}
+APARTMENT = {"id": "apt1", "url": "https://www.fnx.co.il/apartment", "text": "תוכן דירה", "score": 1.0,
+             "page_title": "דירה", "heading_path": "h", "area": "apartment", "chunk_index": 0, "crawled_at": "d"}
+
+
+def test_pipeline_history_searches_both_bare_and_combined_query():
+    retriever = FakeRetrieverByQuery({
+        "ומה עם רכב?": [CAR],
+        "יש לי נזילה בדירה ומה עם רכב?": [APARTMENT],
+    })
+    reranker = RecordingReranker([RerankResult(index=0, relevance_score=0.9), RerankResult(index=1, relevance_score=0.9)])
+    p = AnswerPipeline(retriever=retriever, reranker=reranker, llm=FakeLLM("תשובה. https://www.fnx.co.il/car"))
+    history = [{"question": "יש לי נזילה בדירה", "answer": "תשובה קודמת"}]
+
+    p.answer("ומה עם רכב?", history=history)
+
+    assert retriever.queries == ["ומה עם רכב?", "יש לי נזילה בדירה ומה עם רכב?"]
+    _, documents = reranker.calls[0]
+    assert len(documents) == 2  # union of both searches, deduped by id
+
+
+def test_pipeline_no_history_searches_only_the_bare_question():
+    retriever = FakeRetrieverByQuery({"שאלה": [CAR]})
+    p = AnswerPipeline(
+        retriever=retriever,
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
+        llm=FakeLLM("תשובה. https://www.fnx.co.il/car"),
+    )
+    p.answer("שאלה")
+    assert retriever.queries == ["שאלה"]
+
+
+def test_pipeline_passes_history_into_llm_prompt():
+    llm = RecordingLLM("תשובה טובה. https://www.fnx.co.il/car")
+    p = AnswerPipeline(
+        retriever=FakeRetriever(CANDIDATE),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
+        llm=llm,
+    )
+    history = [{"question": "שאלה קודמת", "answer": "תשובה קודמת"}]
+    p.answer("שאלה חדשה", history=history)
+    assert "שאלה קודמת" in llm.prompts[0] and "תשובה קודמת" in llm.prompts[0]
 
 
 def test_pipeline_low_relevance_returns_not_on_site():
