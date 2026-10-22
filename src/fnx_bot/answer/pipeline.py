@@ -8,7 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .llm import LLMClient, LLMError
-from .prompt import NOT_ON_SITE_MESSAGE, SERVICE_UNAVAILABLE_MESSAGE, SYSTEM_PROMPT, build_user_prompt, is_grounded
+from .prompt import (
+    NOT_ON_SITE_MESSAGE,
+    SERVICE_UNAVAILABLE_MESSAGE,
+    SYSTEM_PROMPT,
+    build_user_prompt,
+    cited_urls,
+    is_grounded,
+)
 from .rerank import CohereReranker, RerankError
 from .retrieve import HybridRetriever
 
@@ -49,4 +56,7 @@ class AnswerPipeline:
         allowed = {p["url"] for p in top}
         if not is_grounded(response.text, allowed):
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
-        return AnswerResult(text=response.text, sources=sorted(allowed), grounded=True)
+        # Only the pages the model actually cited, not every candidate it was handed -
+        # the SPEC rule is "the link points to the page the answer came from".
+        used = sorted({u for u in cited_urls(response.text) if u in allowed})
+        return AnswerResult(text=response.text, sources=used, grounded=True)
