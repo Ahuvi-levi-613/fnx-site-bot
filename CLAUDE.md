@@ -19,8 +19,11 @@ The challenge rules in `docs/SPEC.md` ("Challenge rules") are non-negotiable; ch
 - If SSL errors appear: `pip install pip-system-certs` (adds the NetFree certificate to Python).
 
 ## Status
-- Day 1 code done: crawl (`src/fnx_bot/ingest/`) + Chroma index (`src/fnx_bot/index/`). Not yet run on the real site.
-- Next: run day 1 here, tune `config/crawl.json` area keywords from the `map` output, then day 2 (answer layer).
+- Days 1-3 done and verified: full crawl (434 pages, 6,243 chunks), Voyage AI index, hybrid
+  retrieval + rerank + grounded LLM answers, FastAPI chat server with conversation memory -
+  all live-tested against the real site and real API calls.
+- Day 4 in progress: `eval/questions.json` (30 real questions) + `scripts/run_eval.py`.
+- Next: real chat UI design (see the "פני" design artifact), finish day 4, submit.
 
 ## Layout
 - `config/crawl.json` areas (car, apartment, travel, service), URL/heading keywords, chunk size

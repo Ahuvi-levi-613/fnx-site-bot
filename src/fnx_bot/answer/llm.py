@@ -46,7 +46,7 @@ class LLMClient:
         self.gemini_model = gemini_model or os.getenv("GEMINI_LLM_MODEL", "gemini-3.6-flash")
         self.groq_model = groq_model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         self.openrouter_model = openrouter_model or os.getenv(
-            "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"
+            "OPENROUTER_MODEL", "recursive/flint-v1.0:free"
         )
         self.retry_pause = retry_pause
         self.session = session or requests.Session()
