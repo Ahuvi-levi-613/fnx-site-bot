@@ -3,7 +3,7 @@ import json
 import pytest
 
 from fnx_bot.answer.llm import LLMClient, LLMError, LLMResponse
-from fnx_bot.answer.pipeline import AnswerPipeline
+from fnx_bot.answer.pipeline import AnswerPipeline, Source
 from fnx_bot.answer.prompt import NOT_ON_SITE_MESSAGE, SERVICE_UNAVAILABLE_MESSAGE, build_user_prompt, is_grounded
 from fnx_bot.answer.rerank import CohereReranker, RerankError, RerankResult
 from fnx_bot.answer.retrieve import HybridRetriever
@@ -171,6 +171,17 @@ def test_retriever_keyword_search_respects_area():
     assert out and all(x["area"] == "apartment" for x in out)
 
 
+def test_retriever_strips_hebrew_prefix_letter():
+    # Chunk uses the bare word "מרפסת"; query uses the prefixed form "במרפסת" ("on the balcony").
+    # Without stripping the ב prefix these are two different tokens that would never overlap.
+    chunk = {"id": "c3", "url": "https://www.fnx.co.il/balcony", "page_title": "כיסוי מרפסת",
+             "heading_path": [], "text": "נזק שנגרם למרפסת מכוסה בפוליסה", "chunk_index": 0,
+             "crawled_at": "d", "area": "apartment"}
+    r = HybridRetriever(FakeEmbedder(), FakeStore([]), chunks=[chunk])
+    out = r.search("נגרם נזק במרפסת שלי")
+    assert any(x["id"] == "c3" for x in out)
+
+
 # --- prompt --------------------------------------------------------------------
 
 
@@ -195,6 +206,13 @@ def test_is_grounded_false_when_citing_other_url():
 
 def test_is_grounded_false_with_no_citation():
     assert not is_grounded("תשובה בלי קישור בכלל", {"https://www.fnx.co.il/car"})
+
+
+def test_is_grounded_false_when_model_says_not_found_despite_a_url():
+    # The model can cite a URL out of habit even while saying it doesn't actually know -
+    # that must not count as grounded.
+    text = "לא מצאתי מידע מדויק על כך באתר. https://www.fnx.co.il/car"
+    assert not is_grounded(text, {"https://www.fnx.co.il/car"})
 
 
 # --- AnswerPipeline --------------------------------------------------------------
@@ -236,7 +254,24 @@ def test_pipeline_returns_grounded_answer():
     )
     r = p.answer("שאלה")
     assert r.grounded is True
-    assert r.sources == ["https://www.fnx.co.il/car"]
+    assert r.sources == [Source(url="https://www.fnx.co.il/car", page_title="t")]
+
+
+def test_pipeline_sources_only_lists_urls_the_model_actually_cited():
+    candidates = [
+        {"id": "c1", "url": "https://www.fnx.co.il/car", "text": "תוכן רכב", "score": 1.0,
+         "page_title": "t", "heading_path": "h", "area": "car", "chunk_index": 0, "crawled_at": "d"},
+        {"id": "c2", "url": "https://www.fnx.co.il/other", "text": "תוכן אחר", "score": 0.5,
+         "page_title": "t2", "heading_path": "h2", "area": "car", "chunk_index": 0, "crawled_at": "d"},
+    ]
+    p = AnswerPipeline(
+        retriever=FakeRetriever(candidates),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9), RerankResult(index=1, relevance_score=0.8)]),
+        llm=FakeLLM("תשובה טובה. https://www.fnx.co.il/car"),  # cites only c1, not c2
+    )
+    r = p.answer("שאלה")
+    assert r.grounded is True
+    assert r.sources == [Source(url="https://www.fnx.co.il/car", page_title="t")]  # not c2
 
 
 def test_pipeline_no_candidates_returns_not_on_site():

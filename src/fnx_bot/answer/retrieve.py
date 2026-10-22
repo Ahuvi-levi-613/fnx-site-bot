@@ -14,6 +14,9 @@ from ..config import DATA_DIR
 from ..index.store import ChromaStore
 
 _WORD_RE = re.compile(r"[א-תa-zA-Z0-9]+")
+# Hebrew inseparable prepositions/conjunctions (ב-ה-ו-ל-מ-ש-כ) attach directly to the next word
+# ("דירה" / "בדירה" / "לדירה" are all "apartment"), so a plain word match misses them.
+_PREFIX_LETTERS = set("בהולמשכ")
 
 
 class Embedder(Protocol):
@@ -21,7 +24,13 @@ class Embedder(Protocol):
 
 
 def _tokenize(text: str) -> set[str]:
-    return {w.lower() for w in _WORD_RE.findall(text)}
+    tokens = set()
+    for w in _WORD_RE.findall(text):
+        w = w.lower()
+        tokens.add(w)
+        if len(w) > 2 and w[0] in _PREFIX_LETTERS:
+            tokens.add(w[1:])  # also index/match the word with one leading prefix letter stripped
+    return tokens
 
 
 def load_chunks(path: Path | None = None) -> list[dict]:

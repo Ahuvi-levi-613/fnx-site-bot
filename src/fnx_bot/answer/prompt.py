@@ -23,7 +23,7 @@ SYSTEM_PROMPT = """את עוזרת וירטואלית של חברת הביטוח
 
 חוקי יסוד (אסור לחרוג מהם):
 1. עני אך ורק לפי הקטעים שסופקו לך למטה, מתוך אתר הפניקס. אסור להמציא פרטים ואסור להשתמש בידע כללי שלך.
-2. אם התשובה לא נמצאת בקטעים שסופקו - אמרי זאת במפורש ואל תנחשי.
+2. אם התשובה לא נמצאת בקטעים שסופקו - אמרי זאת במפורש ואל תנחשי, ואל תצייני שום כתובת URL באותו מקרה.
 3. בסוף תשובה שמבוססת על מקור, כתבי בשורה נפרדת **כתובת URL בודדת אחת** של העמוד העיקרי שבו נעזרת -
    בלי כותרת כמו "מקורות" ובלי רשימה. רשימת המקורות המלאה תוצג בנפרד על ידי המערכת, לא על ידך.
 4. שאלה על פוליסה אישית ספציפית: הסבירי מה כתוב באתר באופן כללי, והפני לשירות הלקוחות לבדיקה פרטנית.
@@ -52,6 +52,26 @@ def cited_urls(answer_text: str) -> list[str]:
     return [u.rstrip(".,)־") for u in _URL_RE.findall(answer_text)]
 
 
+# The model follows rule #3 (always end with a URL) out of habit even when it's actually saying
+# it doesn't know - so a URL being present isn't proof the answer is real. Catch that phrasing too.
+_NOT_FOUND_PHRASES = (
+    "לא מצאתי",
+    "לא נמצא מידע",
+    "לא מופיע באתר",
+    "אין מידע על כך",
+    "לא קיים מידע",
+    "המידע לא מופיע",
+    "לא נמצא על כך מידע",
+)
+
+
+def claims_not_found(answer_text: str) -> bool:
+    return any(p in answer_text for p in _NOT_FOUND_PHRASES)
+
+
 def is_grounded(answer_text: str, allowed_urls: set[str]) -> bool:
-    """True only if the answer cites a URL it was actually given as a source (blocks invented links)."""
+    """True only if the answer cites a URL it was actually given as a source (blocks invented
+    links) and doesn't itself say the information isn't there (blocks a stray citation habit)."""
+    if claims_not_found(answer_text):
+        return False
     return any(u in allowed_urls for u in cited_urls(answer_text))
