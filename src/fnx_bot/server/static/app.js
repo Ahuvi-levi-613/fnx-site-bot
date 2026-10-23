@@ -410,10 +410,16 @@
     renderList();
   }
 
+  // Fit the input's height to its text (CSS max-height caps it, then it scrolls).
+  function growInput() {
+    q.style.height = 'auto';
+    q.style.height = q.scrollHeight + 'px';
+  }
+
   async function send(question) {
     question = (question || '').trim();
     if (!question || busy) return;
-    busy = true; sendBtn.disabled = true; q.value = '';
+    busy = true; sendBtn.disabled = true; q.value = ''; growInput();
 
     if (!current) {
       demoRun++; // a question typed during the demo ends the demo
@@ -475,6 +481,11 @@
     card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
   });
   form.addEventListener('submit', (e) => { e.preventDefault(); send(q.value); });
+  // Multi-line input: Enter sends, Shift+Enter adds a line; the box grows with the text.
+  q.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+  });
+  q.addEventListener('input', growInput);
   $('newChat').addEventListener('click', () => { if (!busy) { newChat(); closeSide(); } });
   $('backBtn').addEventListener('click', back);
   $('homeLink').addEventListener('click', (e) => { e.preventDefault(); back(); closeSide(); });
