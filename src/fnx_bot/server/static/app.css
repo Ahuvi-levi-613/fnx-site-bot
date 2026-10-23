@@ -127,6 +127,10 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .welcome { display: flex; flex-direction: column; gap: 22px; padding-top: 5vh; }
 .welcome h1 { margin: 0; font-size: clamp(26px, 3.8vw, 32px); line-height: 1.15; font-weight: 800; letter-spacing: -.01em; }
 .welcome .lede { margin: 8px 0 0; font-size: 15px; line-height: 1.65; color: var(--muted); max-width: 580px; }
+/* greeting + intro text sit in an orange frame */
+.welcome > div:first-child {
+  background: var(--accent-tint); border: 1.5px solid var(--accent-line); border-radius: 20px; padding: 20px 24px;
+}
 
 /* same greeting, compact, at the top of a conversation */
 .intro { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
