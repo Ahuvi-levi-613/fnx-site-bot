@@ -8,5 +8,5 @@ _spec.loader.exec_module(run_eval)
 
 
 def test_provider_counts_most_common_first_and_names_no_model():
-    results = [{"provider": "gemini"}, {"provider": "gemini"}, {"provider": "openrouter"}, {"provider": None}]
-    assert run_eval.provider_counts(results) == "gemini 2, openrouter 1, no model 1"
+    results = [{"provider": "gemini:a"}, {"provider": "gemini:a"}, {"provider": "groq"}, {"provider": None}]
+    assert run_eval.provider_counts(results) == "gemini:a 2, groq 1, no model 1"

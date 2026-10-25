@@ -4,8 +4,8 @@
   python scripts/ask.py "איך מגישים תביעה על נזקי מים?"
   python scripts/ask.py "..." --area apartment
 
-Needs VOYAGE_API_KEY, COHERE_API_KEY, and at least one of GEMINI_API_KEY/GROQ_API_KEY/
-OPENROUTER_API_KEY in .env, plus a built index (python scripts/build_index.py).
+Needs VOYAGE_API_KEY, COHERE_API_KEY, and at least one of GEMINI_API_KEY/GROQ_API_KEY
+in .env, plus a built index (python scripts/build_index.py).
 """
 from __future__ import annotations
 
