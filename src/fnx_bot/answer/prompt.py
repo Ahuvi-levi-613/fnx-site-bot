@@ -22,6 +22,19 @@ SERVICE_UNAVAILABLE_MESSAGE = (
 SYSTEM_PROMPT = """את עוזרת וירטואלית של חברת הביטוח הפניקס (fnx.co.il). עונה בעברית בלבד, בנימה נעימה וברורה.
 
 חוקי יסוד (אסור לחרוג מהם):
+0. השורה הראשונה בתשובה חייבת להיות בדיוק אחת משתי אלה, באנגלית, לבד בשורה:
+   STATUS: FOUND - אם התשובה לשאלה הנוכחית באמת נמצאת בקטעים שסופקו.
+   STATUS: NOT_FOUND - אם התשובה לא נמצאת בקטעים, או שהקטעים רק נוגעים בנושא בלי לענות על השאלה עצמה.
+   חריג חשוב - שאלה על הפוליסה האישית של המשתמש (למשל "הפוליסה שלי מכסה את התאונה שהייתה לי?"):
+   אם בקטעים יש מידע כללי על הנושא (למשל מה ביטוח מקיף מכסה), כתבי STATUS: FOUND, הסבירי מה כתוב באתר
+   באופן כללי, וכתבי במפורש שאת הבדיקה של הפוליסה האישית עושים מול שירות הלקוחות. NOT_FOUND רק אם אין
+   בקטעים שום מידע כללי על הנושא.
+   אחרי השורה הזו כתבי את התשובה עצמה.
+   במקרה של NOT_FOUND כתבי אחרי השורה תגובה קצרה וטבעית למשתמש, משפט או שניים, מותאמת לשאלה שלו.
+   מותר בה רק: לומר בעדינות שבזה את לא יכולה לעזור, לומר שאת עוזרת בביטוח רכב, דירה ונסיעות לחו"ל
+   ובשירות הלקוחות של הפניקס, ואם מתאים - להציע שאלה קשורה שאפשר לשאול אותך.
+   אסור בה בהחלט: כל עובדה או מידע כללי על הנושא שנשאל (גם לא "בדרך כלל..."), מספרים, מחירים, תאריכים,
+   שמות של חברות אחרות, וכתובות URL. פרטי הקשר של שירות הלקוחות יתווספו אוטומטית.
 1. עני אך ורק לפי הקטעים שסופקו לך למטה, מתוך אתר הפניקס. אסור להמציא פרטים ואסור להשתמש בידע כללי שלך.
    אם קטע עוסק בתחום אחר מזה שנשאלת עליו, השתמשי בו רק אם הוא באמת רלוונטי לשאלה הנוכחית.
 2. אם התשובה לא נמצאת בקטעים שסופקו - אמרי זאת במפורש ואל תנחשי, ואל תצייני שום כתובת URL באותו מקרה.
@@ -71,7 +84,53 @@ _NOT_FOUND_PHRASES = (
     "לא קיים מידע",
     "המידע לא מופיע",
     "לא נמצא על כך מידע",
+    # Seen in the 2026-10-23 eval, from answers that said "no info" in other words but still cited URLs
+    "אין תשובה ישירה",
+    "לא סופקו לי",
+    "אינם עוסקים בשאלה",
+    "אין בהם מידע",
+    "לא נמצא מחיר",
 )
+
+
+# The model must open with "STATUS: FOUND" or "STATUS: NOT_FOUND" (SYSTEM_PROMPT rule 0), so the
+# code decides "is there an answer?" from an explicit flag instead of guessing from free-form
+# Hebrew wording. Tolerates markdown bold / case / spacing, since models decorate that line.
+_STATUS_RE = re.compile(r"^[\s*_`#>]*STATUS\s*:\s*[*_`]*\s*(NOT[_ ]FOUND|FOUND)\b[*_`]*", re.IGNORECASE)
+
+
+def parse_status(answer_text: str) -> tuple[str | None, str]:
+    """Return (status, body). status is "FOUND", "NOT_FOUND", or None if the first non-empty line
+    isn't a status line. body is the answer with the status line removed."""
+    lines = answer_text.strip().splitlines()
+    if not lines:
+        return None, ""
+    m = _STATUS_RE.match(lines[0])
+    if not m:
+        return None, answer_text.strip()
+    status = "NOT_FOUND" if m.group(1).upper().startswith("NOT") else "FOUND"
+    return status, "\n".join(lines[1:]).strip()
+
+
+# A NOT_FOUND reply is written by the model, so it's checked before it's shown: it may only say
+# "I can't help with this, here's what I can help with". Anything that looks like content - a
+# digit (prices, dates, phone numbers, temperatures), a URL, or more than a short message - fails
+# the check, and the fixed NOT_ON_SITE_MESSAGE is shown instead. "תקלה" is blocked because the
+# chat UI reads that word as an outage.
+REFUSAL_MAX_CHARS = 260
+REFUSAL_MAX_SENTENCES = 3
+_BLOCKED_IN_REFUSAL = re.compile(r"\d|https?://|www\.|@|₪|%|\$|תקלה")
+
+
+def safe_refusal(reply: str) -> str | None:
+    """The model's own short refusal + the contact link, or None if it fails the safety check."""
+    reply = reply.strip()
+    if not reply or len(reply) > REFUSAL_MAX_CHARS or _BLOCKED_IN_REFUSAL.search(reply):
+        return None
+    sentences = [s for s in re.split(r"[.!?]+", reply) if s.strip()]
+    if len(sentences) > REFUSAL_MAX_SENTENCES:
+        return None
+    return f"{reply}\nלפרטי הקשר עם שירות הלקוחות: {CONTACT_URL}"
 
 
 def claims_not_found(answer_text: str) -> bool:

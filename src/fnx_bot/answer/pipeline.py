@@ -15,6 +15,8 @@ from .prompt import (
     build_user_prompt,
     cited_urls,
     is_grounded,
+    parse_status,
+    safe_refusal,
 )
 from .rerank import CohereReranker, RerankError
 from .retrieve import HybridRetriever
@@ -33,7 +35,7 @@ class Source:
 class AnswerResult:
     text: str
     sources: list[Source]
-    grounded: bool  # False means NOT_ON_SITE_MESSAGE was returned
+    grounded: bool  # False = no answer from the site (a refusal or outage message), never with sources
 
 
 class AnswerPipeline:
@@ -65,19 +67,30 @@ class AnswerPipeline:
         except RerankError:
             return AnswerResult(text=SERVICE_UNAVAILABLE_MESSAGE, sources=[], grounded=False)
         top = [candidates[r.index] for r in ranked if r.relevance_score >= MIN_RELEVANCE]
-        if not top:
-            return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
 
+        # Even with no relevant passages the model is still asked, with none attached, so an
+        # off-topic question gets a natural "not something I can help with" instead of a canned
+        # line. With no passages there's nothing it can cite, so it can't come back as an answer.
         try:
             response = self.llm.generate(SYSTEM_PROMPT, build_user_prompt(question, top, history=history))
         except LLMError:
+            if not top:
+                return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
             return AnswerResult(text=SERVICE_UNAVAILABLE_MESSAGE, sources=[], grounded=False)
+        # Only an explicit "STATUS: FOUND" counts as an answer. NOT_FOUND shows the model's own
+        # short refusal if it passes safe_refusal(); otherwise, or with a missing/garbled status
+        # line, the fixed message. Either way: no sources - a non-answer never comes with citations.
+        status, text = parse_status(response.text)
+        if status == "NOT_FOUND":
+            return AnswerResult(text=safe_refusal(text) or NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
+        if status != "FOUND":
+            return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
         allowed = {p["url"] for p in top}
-        if not is_grounded(response.text, allowed):
+        if not is_grounded(text, allowed):
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
         # Only the pages the model actually cited, not every candidate it was handed -
         # the SPEC rule is "the link points to the page the answer came from".
-        cited = {u for u in cited_urls(response.text) if u in allowed}
+        cited = {u for u in cited_urls(text) if u in allowed}
         seen: set[str] = set()
         sources = []
         for p in top:
@@ -85,4 +98,4 @@ class AnswerPipeline:
                 seen.add(p["url"])
                 sources.append(Source(url=p["url"], page_title=p.get("page_title", "")))
         sources.sort(key=lambda s: s.url)
-        return AnswerResult(text=response.text, sources=sources, grounded=True)
+        return AnswerResult(text=text, sources=sources, grounded=True)
