@@ -551,3 +551,21 @@ def test_pipeline_forgotten_status_plus_refusal_wording_never_shows_sources():
     # Reviewer's case: the model forgets STATUS *and* says "not found" while citing a real URL.
     r = _pipeline_with("לא מצאתי מידע על כך. https://www.fnx.co.il/car").answer("שאלה")
     assert r.grounded is False and r.sources == [] and r.text == NOT_ON_SITE_MESSAGE
+
+
+# --- provider: which model answered ---------------------------------------------------------
+
+
+def test_pipeline_answer_records_the_provider():
+    r = _pipeline_with("STATUS: FOUND\nתשובה טובה. https://www.fnx.co.il/car").answer("שאלה")
+    assert r.grounded is True and r.provider == "fake"
+
+
+def test_pipeline_model_refusal_records_the_provider():
+    r = _pipeline_with("STATUS: NOT_FOUND\nבזה אני לא יכולה לעזור.").answer("שאלה")
+    assert r.grounded is False and r.provider == "fake"
+
+
+def test_pipeline_no_model_call_has_no_provider():
+    p = AnswerPipeline(retriever=FakeRetriever([]), reranker=FakeReranker([]), llm=FakeLLM("x"))
+    assert p.answer("שאלה").provider is None

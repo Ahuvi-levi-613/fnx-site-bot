@@ -36,6 +36,9 @@ class AnswerResult:
     text: str
     sources: list[Source]
     grounded: bool  # False = no answer from the site (a refusal or outage message), never with sources
+    # Which LLM wrote the reply ("gemini" / "groq" / "openrouter"), or None if no model was used
+    # (fixed message before or instead of a model call). Lets an eval tell Gemini answers from fallback ones.
+    provider: str | None = None
 
 
 class AnswerPipeline:
@@ -80,14 +83,16 @@ class AnswerPipeline:
         # Only an explicit "STATUS: FOUND" counts as an answer. NOT_FOUND shows the model's own
         # short refusal if it passes safe_refusal(); otherwise, or with a missing/garbled status
         # line, the fixed message. Either way: no sources - a non-answer never comes with citations.
+        provider = response.provider
         status, text = parse_status(response.text)
         if status == "NOT_FOUND":
-            return AnswerResult(text=safe_refusal(text) or NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
+            return AnswerResult(text=safe_refusal(text) or NOT_ON_SITE_MESSAGE, sources=[], grounded=False,
+                                provider=provider)
         if status != "FOUND":
-            return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
+            return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False, provider=provider)
         allowed = {p["url"] for p in top}
         if not is_grounded(text, allowed):
-            return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
+            return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False, provider=provider)
         # Only the pages the model actually cited, not every candidate it was handed -
         # the SPEC rule is "the link points to the page the answer came from".
         cited = {u for u in cited_urls(text) if u in allowed}
@@ -98,4 +103,4 @@ class AnswerPipeline:
                 seen.add(p["url"])
                 sources.append(Source(url=p["url"], page_title=p.get("page_title", "")))
         sources.sort(key=lambda s: s.url)
-        return AnswerResult(text=text, sources=sources, grounded=True)
+        return AnswerResult(text=text, sources=sources, grounded=True, provider=provider)
