@@ -192,11 +192,15 @@
     sources = sources || [];
     const index = sources.map((x) => normUrl(x.url));
     let t = text
-      .replace(/https?:\/\/\S+/g, (u) => {
+      // the model sometimes wraps a URL in brackets ("[https://...]", "[מקור: https://...]", "(https://...)"):
+      // unwrap it, or a lone "[" is left next to the number
+      .replace(/[[(]\s*(?:מקור\s*:?\s*)?(https?:\/\/[^\s\])]+)\s*[\])]/g, ' $1 ')
+      .replace(/https?:\/\/[^\s\]]+/g, (u) => {
         const n = index.indexOf(normUrl(u));
         const tail = (u.match(/[.,)]+$/) || [''])[0]; // keep the sentence's own punctuation
         return (n >= 0 ? ' [' + (n + 1) + ']' : '') + tail;
       })
+      .replace(/(\[\d+\])[ \t]+([.,])/g, '$1$2') // "[1] ." -> "[1]."
       .replace(/[ \t]+$/gm, '');
     // a short label line left at the end ("כתובת URL:"): drop it, keep its markers on the line above
     t = t.replace(/\n[ \t]*\**[^\n:[]{0,25}:\**((?:[ \t]*\[\d+\])*)[ \t]*$/, '$1');
