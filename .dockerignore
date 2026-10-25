@@ -1,0 +1,23 @@
+# Keep secrets and bulky local files out of the cloud image.
+.env
+.env.*
+.git
+.github
+.venv
+venv
+**/__pycache__
+.pytest_cache
+.claude
+tests
+eval
+docs
+scripts
+!scripts/fetch_data.py
+
+# Only the runtime data goes in: data/chroma and data/chunks.jsonl.
+data/raw
+data/pages.jsonl
+data/failures.jsonl
+data/urls.txt
+data/stats.json
+data/embeddings_cache.jsonl
