@@ -194,13 +194,14 @@
     let t = text
       .replace(/https?:\/\/\S+/g, (u) => {
         const n = index.indexOf(normUrl(u));
-        return n >= 0 ? ' [' + (n + 1) + ']' : '';
+        const tail = (u.match(/[.,)]+$/) || [''])[0]; // keep the sentence's own punctuation
+        return (n >= 0 ? ' [' + (n + 1) + ']' : '') + tail;
       })
       .replace(/[ \t]+$/gm, '');
     // a short label line left at the end ("כתובת URL:"): drop it, keep its markers on the line above
     t = t.replace(/\n[ \t]*\**[^\n:[]{0,25}:\**((?:[ \t]*\[\d+\])*)[ \t]*$/, '$1');
-    // markers alone on the last line: join them to the line above
-    t = t.replace(/\n\s*((?:\[\d+\][ \t]*)+)$/, ' $1');
+    // markers alone on a line (anywhere): join them to the text line above, never a row of lone numbers
+    t = t.replace(/\n\s*((?:\[\d+\][ \t]*)+)(?=\n|$)/g, ' $1');
     t = t.replace(/\n{3,}/g, '\n\n').trim();
     if (sources.length && !/\[\d+\]/.test(t)) t += ' ' + sources.map((x, i) => '[' + (i + 1) + ']').join(' ');
     // one marker per number per line
