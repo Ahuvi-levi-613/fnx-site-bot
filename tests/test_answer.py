@@ -595,3 +595,63 @@ def test_pipeline_model_refusal_records_the_provider():
 def test_pipeline_no_model_call_has_no_provider():
     p = AnswerPipeline(retriever=FakeRetriever([]), reranker=FakeReranker([]), llm=FakeLLM("x"))
     assert p.answer("שאלה").provider is None
+
+
+# --- contact questions: the contact page is always passed in ------------------------------
+
+from fnx_bot.answer.pipeline import is_contact_question  # noqa: E402
+
+CONTACT_CHUNK = {"id": "k1", "url": "https://www.fnx.co.il/customer-service/contact-us", "text": "מוקד שירות 054-9893455",
+                 "page_title": "כל הדרכים ליצור איתנו קשר | הפניקס", "heading_path": ["כל הדרכים ליצור איתנו קשר"],
+                 "area": "service", "chunk_index": 0, "crawled_at": "d"}
+
+
+class FakeRetrieverWithChunks(FakeRetriever):
+    def __init__(self, candidates, chunks):
+        super().__init__(candidates)
+        self.chunks = chunks
+
+
+@pytest.mark.parametrize("q", ["מה הטלפון ליצירת קשר", "איך יוצרים קשר עם שירות הלקוחות?",
+                               "אפשר לפנות אליכם בוואטסאפ?", "ואתם פתוחים בשישי?", "מה שעות הפעילות?"])
+def test_contact_questions_are_detected(q):
+    assert is_contact_question(q)
+
+
+@pytest.mark.parametrize("q", ["מה מכסה ביטוח חובה?", "המזוודה שלי לא הגיעה, מה עושים?"])
+def test_regular_questions_are_not_contact_questions(q):
+    assert not is_contact_question(q)
+
+
+def test_pipeline_contact_question_gets_the_contact_page_and_can_cite_it():
+    llm = RecordingFakeLLM("STATUS: FOUND\nאפשר בוואטסאפ 054-9893455. https://www.fnx.co.il/customer-service/contact-us")
+    p = AnswerPipeline(
+        retriever=FakeRetrieverWithChunks(CANDIDATE, [CONTACT_CHUNK]),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
+        llm=llm,
+    )
+    r = p.answer("מה הטלפון ליצירת קשר")
+    assert "https://www.fnx.co.il/customer-service/contact-us" in llm.prompts[0]
+    assert "https://www.fnx.co.il/car" in llm.prompts[0]  # added to the regular passages, not instead
+    assert r.grounded and [s.url for s in r.sources] == ["https://www.fnx.co.il/customer-service/contact-us"]
+
+
+def test_pipeline_contact_page_rescues_a_question_with_no_relevant_passages():
+    llm = RecordingFakeLLM("STATUS: FOUND\nבטלפון. https://www.fnx.co.il/customer-service/contact-us")
+    p = AnswerPipeline(
+        retriever=FakeRetrieverWithChunks(CANDIDATE, [CONTACT_CHUNK]),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.01)]),  # nothing relevant
+        llm=llm,
+    )
+    assert p.answer("מה הטלפון ליצירת קשר").grounded is True
+
+
+def test_pipeline_regular_question_does_not_get_the_contact_page():
+    llm = RecordingFakeLLM("STATUS: FOUND\nתשובה. https://www.fnx.co.il/car")
+    p = AnswerPipeline(
+        retriever=FakeRetrieverWithChunks(CANDIDATE, [CONTACT_CHUNK]),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
+        llm=llm,
+    )
+    p.answer("מה מכסה ביטוח חובה?")
+    assert "customer-service/contact-us" not in llm.prompts[0]

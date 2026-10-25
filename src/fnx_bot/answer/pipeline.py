@@ -5,10 +5,12 @@ No source, no answer -> NOT_ON_SITE_MESSAGE with contact options instead.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .llm import LLMClient, LLMError
 from .prompt import (
+    CONTACT_URL,
     NOT_ON_SITE_MESSAGE,
     SERVICE_UNAVAILABLE_MESSAGE,
     SYSTEM_PROMPT,
@@ -19,10 +21,25 @@ from .prompt import (
     safe_refusal,
 )
 from .rerank import CohereReranker, RerankError
-from .retrieve import HybridRetriever
+from .retrieve import HybridRetriever, _as_result
 
 RERANK_TOP_N = 5
 MIN_RELEVANCE = 0.1  # below this, treat the top rerank hit as noise, not an actual match
+
+# The contact page is mostly phone numbers and department names - on the live site words like
+# "WhatsApp" or "contact us" are icons, so they aren't in the crawled text and no search (semantic,
+# keyword or BM25, all measured 2026-10-25) brings the page up for "how do I contact you?".
+# So for a contact-type question its passages are always added. They're added, not swapped in:
+# the model still writes the answer and must cite the page like any other passage.
+_CONTACT_QUESTION_RE = re.compile(
+    r"קשר|טלפון|להתקשר|התקשרות|ו?ואטסאפ|ווטסאפ|וואצאפ|whatsapp|מייל|דוא\"?ל|צ'?אט|נציג|מוקד|"
+    r"שעות|פתוחים|פתוח ב|לפנות|פנייה|פניה",
+    re.IGNORECASE,
+)
+
+
+def is_contact_question(question: str) -> bool:
+    return bool(_CONTACT_QUESTION_RE.search(question))
 
 
 @dataclass
@@ -47,6 +64,14 @@ class AnswerPipeline:
         self.reranker = reranker
         self.llm = llm
 
+    def _with_contact_passages(self, top: list[dict]) -> list[dict]:
+        """top + the contact page's chunks (by exact URL), without duplicates. A retriever with no
+        chunk list (e.g. a test fake) just returns top unchanged."""
+        seen = {p["id"] for p in top}
+        extra = [_as_result(c, 0.0) for c in getattr(self.retriever, "chunks", [])
+                 if c.get("url") == CONTACT_URL and c["id"] not in seen]
+        return top + extra
+
     def answer(self, question: str, area: str | None = None, history: list[dict] | None = None) -> AnswerResult:
         # Search with the question alone AND combined with the previous one, then merge: a
         # follow-up like "ומה עם רכב?" can be too bare to retrieve well on its own, but
@@ -70,6 +95,8 @@ class AnswerPipeline:
         except RerankError:
             return AnswerResult(text=SERVICE_UNAVAILABLE_MESSAGE, sources=[], grounded=False)
         top = [candidates[r.index] for r in ranked if r.relevance_score >= MIN_RELEVANCE]
+        if is_contact_question(question):
+            top = self._with_contact_passages(top)
 
         # Even with no relevant passages the model is still asked, with none attached, so an
         # off-topic question gets a natural "not something I can help with" instead of a canned
