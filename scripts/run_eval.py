@@ -24,7 +24,7 @@ from dotenv import load_dotenv  # noqa: E402
 
 from fnx_bot.answer.llm import LLMClient  # noqa: E402
 from fnx_bot.answer.pipeline import AnswerPipeline  # noqa: E402
-from fnx_bot.answer.prompt import NOT_ON_SITE_MESSAGE, SERVICE_UNAVAILABLE_MESSAGE  # noqa: E402
+from fnx_bot.answer.prompt import CONTACT_URL, SERVICE_UNAVAILABLE_MESSAGE  # noqa: E402
 from fnx_bot.answer.rerank import CohereReranker  # noqa: E402
 from fnx_bot.answer.retrieve import HybridRetriever  # noqa: E402
 from fnx_bot.config import DATA_DIR, ROOT  # noqa: E402
@@ -89,7 +89,9 @@ def run_not_answerable(pipeline: AnswerPipeline, pacer: Pacer, items: list[dict]
     results = []
     for q in items:
         r = answer_with_retry(pipeline, pacer, q["question"])
-        correct = (not r.grounded) and r.text == NOT_ON_SITE_MESSAGE
+        # A refusal is either the fixed message or the model's own short one (safe_refusal) -
+        # both end with the contact link and carry no sources.
+        correct = (not r.grounded) and not r.sources and CONTACT_URL in r.text and r.text != SERVICE_UNAVAILABLE_MESSAGE
         results.append({
             "id": q["id"], "question": q["question"], "grounded": r.grounded,
             "correct": correct, "answer": r.text,

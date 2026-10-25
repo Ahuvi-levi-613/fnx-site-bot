@@ -262,7 +262,7 @@ def test_pipeline_returns_grounded_answer():
     p = AnswerPipeline(
         retriever=FakeRetriever(CANDIDATE),
         reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
-        llm=FakeLLM("תשובה טובה. https://www.fnx.co.il/car"),
+        llm=FakeLLM("STATUS: FOUND\nתשובה טובה. https://www.fnx.co.il/car"),
     )
     r = p.answer("שאלה")
     assert r.grounded is True
@@ -279,7 +279,7 @@ def test_pipeline_sources_only_lists_urls_the_model_actually_cited():
     p = AnswerPipeline(
         retriever=FakeRetriever(candidates),
         reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9), RerankResult(index=1, relevance_score=0.8)]),
-        llm=FakeLLM("תשובה טובה. https://www.fnx.co.il/car"),  # cites only c1, not c2
+        llm=FakeLLM("STATUS: FOUND\nתשובה טובה. https://www.fnx.co.il/car"),  # cites only c1, not c2
     )
     r = p.answer("שאלה")
     assert r.grounded is True
@@ -339,7 +339,7 @@ def test_pipeline_history_searches_both_bare_and_combined_query():
         "יש לי נזילה בדירה ומה עם רכב?": [APARTMENT],
     })
     reranker = RecordingReranker([RerankResult(index=0, relevance_score=0.9), RerankResult(index=1, relevance_score=0.9)])
-    p = AnswerPipeline(retriever=retriever, reranker=reranker, llm=FakeLLM("תשובה. https://www.fnx.co.il/car"))
+    p = AnswerPipeline(retriever=retriever, reranker=reranker, llm=FakeLLM("STATUS: FOUND\nתשובה. https://www.fnx.co.il/car"))
     history = [{"question": "יש לי נזילה בדירה", "answer": "תשובה קודמת"}]
 
     p.answer("ומה עם רכב?", history=history)
@@ -354,7 +354,7 @@ def test_pipeline_no_history_searches_only_the_bare_question():
     p = AnswerPipeline(
         retriever=retriever,
         reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
-        llm=FakeLLM("תשובה. https://www.fnx.co.il/car"),
+        llm=FakeLLM("STATUS: FOUND\nתשובה. https://www.fnx.co.il/car"),
     )
     p.answer("שאלה")
     assert retriever.queries == ["שאלה"]
@@ -386,7 +386,7 @@ def test_pipeline_ungrounded_llm_answer_returns_not_on_site():
     p = AnswerPipeline(
         retriever=FakeRetriever(CANDIDATE),
         reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
-        llm=FakeLLM("תשובה בלי קישור בכלל"),
+        llm=FakeLLM("STATUS: FOUND\nתשובה בלי קישור בכלל"),
     )
     r = p.answer("שאלה")
     assert r.grounded is False and r.text == NOT_ON_SITE_MESSAGE
@@ -416,3 +416,138 @@ def test_pipeline_llm_outage_returns_service_unavailable():
     )
     r = p.answer("שאלה")
     assert r.grounded is False and r.text == SERVICE_UNAVAILABLE_MESSAGE
+
+
+# --- explicit STATUS line: "no answer" must never come with sources -------------------
+
+from fnx_bot.answer.prompt import parse_status  # noqa: E402
+
+
+@pytest.mark.parametrize("line", ["STATUS: FOUND", "**STATUS: FOUND**", "status:found", "  STATUS : FOUND  "])
+def test_parse_status_found_variants(line):
+    assert parse_status(f"{line}\nתשובה") == ("FOUND", "תשובה")
+
+
+@pytest.mark.parametrize("line", ["STATUS: NOT_FOUND", "**STATUS:** NOT_FOUND", "STATUS: NOT FOUND"])
+def test_parse_status_not_found_variants(line):
+    assert parse_status(f"{line}\nאין מידע")[0] == "NOT_FOUND"
+
+
+def test_parse_status_missing_line():
+    assert parse_status("תשובה בלי שורת סטטוס https://www.fnx.co.il/car") == (
+        None, "תשובה בלי שורת סטטוס https://www.fnx.co.il/car")
+
+
+def _pipeline_with(llm_text):
+    return AnswerPipeline(
+        retriever=FakeRetriever(CANDIDATE),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]),
+        llm=FakeLLM(llm_text),
+    )
+
+
+def test_pipeline_not_found_status_drops_sources_even_with_a_valid_url():
+    # The 2026-10-23 eval case: a soft "no direct answer" that still cited real passage URLs.
+    r = _pipeline_with("STATUS: NOT_FOUND\nאין כאן תשובה ישירה. https://www.fnx.co.il/car").answer("שאלה")
+    assert r.grounded is False and r.text == NOT_ON_SITE_MESSAGE and r.sources == []
+
+
+def test_pipeline_missing_status_is_treated_as_not_found():
+    r = _pipeline_with("תשובה טובה. https://www.fnx.co.il/car").answer("שאלה")
+    assert r.grounded is False and r.text == NOT_ON_SITE_MESSAGE and r.sources == []
+
+
+def test_pipeline_found_status_line_is_not_shown_to_the_user():
+    r = _pipeline_with("STATUS: FOUND\nתשובה טובה. https://www.fnx.co.il/car").answer("שאלה")
+    assert r.grounded is True and "STATUS" not in r.text and r.text.startswith("תשובה טובה")
+
+
+def test_pipeline_found_but_soft_refusal_wording_still_refuses():
+    # Backup net: model says FOUND yet the text admits there's no info.
+    r = _pipeline_with("STATUS: FOUND\nהקטעים לא סופקו לי עם פרטים. https://www.fnx.co.il/car").answer("שאלה")
+    assert r.grounded is False and r.sources == []
+
+
+# --- natural refusals: the model's own words, but only if they pass the safety check ----------
+
+from fnx_bot.answer.prompt import CONTACT_URL, safe_refusal  # noqa: E402
+
+NATURAL = "על מזג האוויר אני לא יכולה לעזור, אני כאן בשביל שאלות על הביטוחים של הפניקס. נוסעת לחו\"ל? אשמח לספר על ביטוח נסיעות 😊"
+
+
+def test_safe_refusal_keeps_a_short_natural_reply_and_adds_contact():
+    out = safe_refusal(NATURAL)
+    assert out.startswith(NATURAL) and out.endswith(CONTACT_URL)
+
+
+@pytest.mark.parametrize("reply", [
+    "באתר אין מידע, אבל מחר צפויות 25 מעלות.",       # a number = content slipped in
+    "אפשר לבדוק ב-https://weather.example.com",      # a URL
+    "צריך לפנות למייל info@example.com",             # an email
+    "יש כרגע תקלה, נסו שוב.",                         # the UI reads this word as an outage
+    "משפט. " * 4,                                     # too many sentences
+    "א" * 300,                                        # too long
+    "",                                               # empty
+])
+def test_safe_refusal_rejects_anything_that_looks_like_content(reply):
+    assert safe_refusal(reply) is None
+
+
+def test_pipeline_not_found_shows_the_natural_refusal_without_sources():
+    r = _pipeline_with(f"STATUS: NOT_FOUND\n{NATURAL}").answer("מה מזג האוויר מחר?")
+    assert r.grounded is False and r.sources == []
+    assert r.text.startswith(NATURAL) and r.text.endswith(CONTACT_URL)
+
+
+def test_pipeline_not_found_with_unsafe_reply_falls_back_to_fixed_message():
+    r = _pipeline_with("STATUS: NOT_FOUND\nאין באתר, אבל מחר 25 מעלות.").answer("מה מזג האוויר מחר?")
+    assert r.grounded is False and r.text == NOT_ON_SITE_MESSAGE and r.sources == []
+
+
+class RecordingFakeLLM(FakeLLM):
+    def __init__(self, text):
+        super().__init__(text)
+        self.prompts = []
+
+    def generate(self, system, prompt):
+        self.prompts.append(prompt)
+        return super().generate(system, prompt)
+
+
+def test_pipeline_low_relevance_still_asks_the_model_with_no_passages():
+    llm = RecordingFakeLLM(f"STATUS: NOT_FOUND\n{NATURAL}")
+    p = AnswerPipeline(
+        retriever=FakeRetriever(CANDIDATE),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.01)]),
+        llm=llm,
+    )
+    r = p.answer("מה מזג האוויר מחר?")
+    assert "https://www.fnx.co.il/car" not in llm.prompts[0]  # the low-relevance passage isn't sent
+    assert r.grounded is False and r.sources == [] and r.text.startswith(NATURAL)
+
+
+def test_pipeline_low_relevance_found_claim_cannot_become_an_answer():
+    # No passages were given, so even a "FOUND" with a real-looking site URL has nothing to cite.
+    p = AnswerPipeline(
+        retriever=FakeRetriever(CANDIDATE),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.01)]),
+        llm=FakeLLM("STATUS: FOUND\nמחר יהיה חם. https://www.fnx.co.il/car"),
+    )
+    r = p.answer("מה מזג האוויר מחר?")
+    assert r.grounded is False and r.text == NOT_ON_SITE_MESSAGE and r.sources == []
+
+
+def test_pipeline_low_relevance_llm_outage_is_a_plain_refusal_not_an_outage():
+    p = AnswerPipeline(
+        retriever=FakeRetriever(CANDIDATE),
+        reranker=FakeReranker([RerankResult(index=0, relevance_score=0.01)]),
+        llm=FailingLLM(),
+    )
+    r = p.answer("מה מזג האוויר מחר?")
+    assert r.grounded is False and r.text == NOT_ON_SITE_MESSAGE
+
+
+def test_pipeline_forgotten_status_plus_refusal_wording_never_shows_sources():
+    # Reviewer's case: the model forgets STATUS *and* says "not found" while citing a real URL.
+    r = _pipeline_with("לא מצאתי מידע על כך. https://www.fnx.co.il/car").answer("שאלה")
+    assert r.grounded is False and r.sources == [] and r.text == NOT_ON_SITE_MESSAGE
