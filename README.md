@@ -104,6 +104,30 @@ HTML, CSS ו-JavaScript רגילים, בלי שלב בנייה (`src/fnx_bot/ser
 נקודת הקצה: `POST /api/chat` עם `{"question": "...", "history": [{"question": "...", "answer": "..."}], "area": "..."}`,
 מחזירה `{"answer": "...", "sources": [{"url": "...", "page_title": "..."}], "grounded": true/false}`.
 
+## הרצה בענן (Render)
+
+הקוד, הנתונים והשרת נפרדים, כך שאפשר להחליף כל אחד בלי לגעת באחרים:
+- **נתונים:** `data/chroma/` ו-`data/chunks.jsonl` לא נמצאים ב-git. הם נארזים ל-zip עם תאריך (`data-YYYY-MM-DD.zip`, עם `chroma/` ו-`chunks.jsonl` בשורש) ומועלים כ-**Release** ב-GitHub.
+  ה-`Dockerfile` מוריד אותם בזמן הבנייה מהכתובת שבמשתנה `DATA_URL` (`scripts/fetch_data.py`).
+- **שרת:** `Dockerfile` רגיל, הפורט ממשתנה הסביבה `PORT`. עובד גם בכל שירות אחר שמריץ Docker (למשל Google Cloud Run).
+- **מפתחות:** רק כסודות בשירות הענן, אף פעם לא בקובץ.
+
+אין מסד נתונים: האינדקס הוא קבצים ב-`data/chroma`, והשיחות נשמרות רק בדפדפן של המשתמש.
+
+הקמה ב-render.com:
+1. New > **Web Service**, מחברים את ה-repo מ-GitHub. Render מזהה את ה-`Dockerfile`. Instance type: **Free**.
+2. Environment: `DATA_URL` (הקישור ל-zip ב-Release), והמפתחות `VOYAGE_API_KEY`, `COHERE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
+   לא חובה (יש ברירות מחדל): `VOYAGE_EMBED_MODEL`, `VOYAGE_EMBED_DIM`, `COHERE_RERANK_MODEL`, `GEMINI_LLM_MODEL`, `GROQ_MODEL`, `OPENROUTER_MODEL`.
+   משתני `FIRECRAWL_*` ו-`CRAWL_*` לא נחוצים בענן.
+3. שירות חינמי נרדם אחרי 15 דקות בלי שימוש, והכניסה הראשונה אחרי זה לוקחת כדקה.
+
+אחרי סריקה מחדש:
+```bash
+python scripts/memcheck.py      # האם עדיין נכנס ב-512MB של השרת החינמי (בלי מפתחות, בלי רשת)
+```
+אם עובר: מעלים zip חדש ל-Release, מעדכנים את `DATA_URL` ב-Render ומריצים Manual Deploy.
+אם לא עובר: מייעלים את החיפוש לפי מילים, או עוברים לשרת עם יותר זיכרון (אותו `Dockerfile`).
+
 ## בדיקות
 
 ```bash

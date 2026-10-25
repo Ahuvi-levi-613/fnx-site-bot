@@ -39,7 +39,40 @@ Fixed rules: single source (site only, no outside knowledge); natural, pleasant 
 | LLM | Gemini Flash | on 429: wait, then Groq, then OpenRouter (user shouldn't notice) |
 | Server | FastAPI | — |
 | UI | custom RTL chat page: bubbles, source cards, subtle animation (not Streamlit) | Streamlit |
+| Hosting | Render free web service (Docker) | any Docker host (same Dockerfile) |
 Retrieval is hybrid: semantic + keyword. Keys only in `.env`, never in code or git.
+
+## Cloud hosting (added 2026-10-25)
+Live: https://fnx-site-bot.onrender.com (Render free web service, Frankfurt, Docker).
+
+- **How:** `Dockerfile` runs the FastAPI server. Data is not in git: `data/chroma/` + `data/chunks.jsonl`
+  are zipped as a dated GitHub Release (`data-YYYY-MM-DD`); Render's `DATA_URL` env var points to it and
+  `scripts/fetch_data.py` downloads it at build time. Keys live only in Render's env vars.
+  No database: the index is files, chat history stays in the user's browser.
+- **Memory:** 259 MB measured with `scripts/memcheck.py`, of 512 MB on the free plan. Run it after every
+  re-crawl. A full-site crawl (~1,330 pages, ~3x today) is estimated at 650-850 MB and would not fit.
+  A first step would be a more compact keyword search (e.g. BM25); if that isn't enough, reconsider the
+  hosting and storage options again at that point, with the numbers in hand.
+- **Wake-up ping:** the free plan sleeps after 15 min idle and takes ~1 min to wake. UptimeRobot (free)
+  requests the home page every 5 min, so it never sleeps, and emails if it goes down. The home page
+  doesn't call the answer pipeline, so pings use no API quota. A full month (744 h) fits the 750 free hours.
+- **How long free:** Render lists no expiry for free web services; 750 h renew monthly. Render may
+  restart a free service at any time.
+- **Real limits are the API keys, not Render:** Gemini 20 answers/day, Cohere trial 10/min (~1,000/month),
+  0.1 CPU (simultaneous questions wait in line).
+
+Options considered and rejected:
+| Option | Why not |
+| --- | --- |
+| Hugging Face Spaces | Docker/Gradio Spaces now require PRO ($9/month); free accounts get static Spaces only |
+| Railway | New signups paused after the Oct 2026 outage; free is a 30-day $5 trial, then $1/month credit (not enough for 24/7) |
+| Vercel | Serverless functions: chromadb is too big for the bundle, and there's no long-running server |
+| Cloudflare | Pages is static only; Workers can't run chromadb (128 MB, no native libraries); Containers are paid |
+| GitHub Pages | Static only: can't run Python, and API keys would be visible in the browser |
+| AWS / Azure / full GCP | Too much setup for the time left; credits expire and then cost money |
+| Google Cloud Run | Not rejected - one candidate if more memory is ever needed; needs a billing account (credit card) |
+| Hosted vector DB (Qdrant, Supabase, Pinecone) | Not needed for 6,243 chunks; free tiers pause when idle (Supabase after a week), which would break a CV link |
+| Embedding model on the server (e.g. multilingual-e5-base) | Needs over 1 GB RAM, won't fit 512 MB; the Voyage API keeps the server light |
 
 ## Testing
 30 questions written after the crawl from real pages of the four areas: 20 answerable, 10 not, plus 5 short follow-up
@@ -107,3 +140,6 @@ Dated, with the reason, so later decisions have the context behind them.
   producing answers that looked like quality failures but were actually rate-limit noise.
   `scripts/run_eval.py` paces calls and retries a transient failure before counting it; a live
   demo (one question at a time, human-paced) isn't affected.
+- **2026-10-25 - Cloud hosting added (not in the original spec).** Approved by Ahuva so the bot has a
+  public link for judges and a CV. Render free + UptimeRobot wake-up ping; full reasoning and the
+  rejected options are in "Cloud hosting".
