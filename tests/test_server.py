@@ -69,3 +69,16 @@ def test_index_page_served():
     r = client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
+
+
+def test_chat_endpoint_returns_provider_and_logs_it_without_the_question(caplog):
+    fake = FakePipeline(AnswerResult(text="תשובה", sources=[], grounded=True, provider="gemini"))
+    app.dependency_overrides[get_pipeline] = lambda: fake
+    client = TestClient(app)
+
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        r = client.post("/api/chat", json={"question": "שאלה סודית?"})
+
+    assert r.json()["provider"] == "gemini"
+    assert "provider=gemini" in caplog.text
+    assert "שאלה סודית" not in caplog.text  # privacy: the question itself is never logged

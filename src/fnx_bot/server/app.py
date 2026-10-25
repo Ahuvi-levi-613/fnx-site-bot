@@ -1,10 +1,11 @@
 """Day 3 chat server: one endpoint over the Day 2 answer pipeline.
 
 GET  /            -> temporary plain test page (real design comes separately)
-POST /api/chat     -> {question, history, area} -> {answer, sources, grounded}
+POST /api/chat     -> {question, history, area} -> {answer, sources, grounded, provider}
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -19,6 +20,9 @@ from ..answer.retrieve import HybridRetriever
 from ..config import DATA_DIR
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# uvicorn's own logger, so the line shows in the server console without extra logging setup
+log = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="fnx-site-bot")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -62,6 +66,7 @@ class ChatResponse(BaseModel):
     answer: str
     sources: list[SourceOut]
     grounded: bool
+    provider: str | None = None  # which LLM answered; the chat UI ignores it
 
 
 @app.get("/")
@@ -73,8 +78,13 @@ def index() -> FileResponse:
 def chat(req: ChatRequest, pipeline: AnswerPipeline = Depends(get_pipeline)) -> ChatResponse:
     history = [t.model_dump() for t in req.history] or None
     result = pipeline.answer(req.question, area=req.area, history=history)
+    # One line per question, so a fallback to a weaker model is visible live (e.g. during a demo).
+    # The question text itself is not logged (SPEC privacy rule: don't store user details).
+    log.info("chat: provider=%s grounded=%s sources=%d", result.provider or "none", result.grounded,
+             len(result.sources))
     return ChatResponse(
         answer=result.text,
         sources=[SourceOut(url=s.url, page_title=s.page_title) for s in result.sources],
         grounded=result.grounded,
+        provider=result.provider,
     )

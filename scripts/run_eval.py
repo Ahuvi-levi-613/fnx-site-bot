@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -80,7 +81,7 @@ def run_answerable(pipeline: AnswerPipeline, pacer: Pacer, items: list[dict]) ->
         results.append({
             "id": q["id"], "question": q["question"], "expected_url": q["expected_url"],
             "grounded": r.grounded, "source_urls": source_urls, "correct": correct,
-            "answer": r.text,
+            "answer": r.text, "provider": r.provider,
         })
     return results
 
@@ -94,7 +95,7 @@ def run_not_answerable(pipeline: AnswerPipeline, pacer: Pacer, items: list[dict]
         correct = (not r.grounded) and not r.sources and CONTACT_URL in r.text and r.text != SERVICE_UNAVAILABLE_MESSAGE
         results.append({
             "id": q["id"], "question": q["question"], "grounded": r.grounded,
-            "correct": correct, "answer": r.text,
+            "correct": correct, "answer": r.text, "provider": r.provider,
         })
     return results
 
@@ -110,7 +111,7 @@ def run_personal_policy(pipeline: AnswerPipeline, pacer: Pacer, items: list[dict
         acceptable = (not r.grounded) or has_referral
         results.append({
             "id": q["id"], "question": q["question"], "grounded": r.grounded,
-            "acceptable": acceptable, "answer": r.text,
+            "acceptable": acceptable, "answer": r.text, "provider": r.provider,
         })
     return results
 
@@ -127,8 +128,15 @@ def run_follow_ups(pipeline: AnswerPipeline, pacer: Pacer, items: list[dict]) ->
             "turn1_grounded": r1.grounded, "turn2_grounded": r2.grounded,
             "turn2_sources": [s.url for s in r2.sources], "understood": understood,
             "turn1_answer": r1.text, "turn2_answer": r2.text,
+            "turn1_provider": r1.provider, "provider": r2.provider,
         })
     return results
+
+
+def provider_counts(results: list[dict]) -> str:
+    """E.g. "gemini 33, openrouter 2" - one count per reply (turn2 for follow-ups)."""
+    counts = Counter(r["provider"] or "no model" for r in results)
+    return ", ".join(f"{name} {n}" for name, n in counts.most_common())
 
 
 def main() -> int:
@@ -176,29 +184,33 @@ def main() -> int:
     print(f"  (took {elapsed:.0f}s)")
     print("=" * 60)
 
+    # Which model wrote each reply: a run mostly answered by the fallback measures that model,
+    # not the real bot - check this line before trusting the numbers above.
+    print("\nAnswered by:", provider_counts(answerable + not_answerable + personal_policy + follow_ups))
+
     print("\nFailures (answerable):")
     for r in answerable:
         if not r["correct"]:
-            print(f"  [{r['id']}] {r['question']}")
+            print(f"  [{r['id']}] ({r['provider'] or 'no model'}) {r['question']}")
             print(f"    expected: {r['expected_url']}")
             print(f"    got sources: {r['source_urls']} grounded={r['grounded']}")
 
     print("\nFailures (not-answerable, should have been refused):")
     for r in not_answerable:
         if not r["correct"]:
-            print(f"  [{r['id']}] {r['question']} -> grounded={r['grounded']}")
+            print(f"  [{r['id']}] ({r['provider'] or 'no model'}) {r['question']} -> grounded={r['grounded']}")
             print(f"    {r['answer'][:160]}")
 
     print("\nFailures (personal-policy, should refuse or refer):")
     for r in personal_policy:
         if not r["acceptable"]:
-            print(f"  [{r['id']}] {r['question']}")
+            print(f"  [{r['id']}] ({r['provider'] or 'no model'}) {r['question']}")
             print(f"    {r['answer'][:160]}")
 
     print("\nFailures (follow-ups):")
     for r in follow_ups:
         if not r["understood"]:
-            print(f"  [{r['id']}] turn1={r['turn1']!r} turn2={r['turn2']!r}")
+            print(f"  [{r['id']}] ({r['provider'] or 'no model'}) turn1={r['turn1']!r} turn2={r['turn2']!r}")
             print(f"    turn2 answer: {r['turn2_answer'][:160]}")
 
     if args.save:
