@@ -72,57 +72,83 @@ def test_rerank_missing_key():
 
 
 class FakeLLMSession:
-    """status_by_provider: {"gemini": 200, "groq": 429, ...} - which HTTP status each
-    provider's URL returns; a missing entry means that provider isn't called."""
+    """status_by_step: {"gemini-a": 200, "gemini-b": 429, "groq": 503, ...} - the HTTP status each
+    Gemini model (by name in the URL) or Groq returns; a missing entry means it isn't expected to be called."""
 
-    def __init__(self, status_by_provider):
-        self.status_by_provider = status_by_provider
+    def __init__(self, status_by_step, raise_for=()):
+        self.status_by_step = status_by_step
+        self.raise_for = raise_for  # steps that raise a network error instead of answering
         self.calls = []
 
     def post(self, url, headers=None, json=None, timeout=None):
         if "generativelanguage" in url:
-            provider = "gemini"
-        elif "groq" in url:
-            provider = "groq"
+            step = url.rsplit("/", 1)[1].split(":")[0]
         else:
-            provider = "openrouter"
-        self.calls.append(provider)
-        status = self.status_by_provider[provider]
+            step = "groq"
+        self.calls.append(step)
+        if step in self.raise_for:
+            import requests
+            raise requests.Timeout("read timed out")
+        status = self.status_by_step[step]
         if status != 200:
             return Resp(status)
-        if provider == "gemini":
-            return Resp(200, {"candidates": [{"content": {"parts": [{"text": f"answer from {provider}"}]}}]})
-        return Resp(200, {"choices": [{"message": {"content": f"answer from {provider}"}}]})
+        if step == "groq":
+            return Resp(200, {"choices": [{"message": {"content": "answer from groq"}}]})
+        return Resp(200, {"candidates": [{"content": {"parts": [{"text": f"answer from {step}"}]}}]})
 
 
-def test_llm_uses_gemini_first():
-    s = FakeLLMSession({"gemini": 200})
-    c = LLMClient(gemini_api_key="k", groq_api_key="k", openrouter_api_key="k", retry_pause=0, session=s)
-    r = c.generate("system", "question")
-    assert r.provider == "gemini" and r.text == "answer from gemini"
-    assert s.calls == ["gemini"]
+def _client(session, gemini_key="k", groq_key="k", models=("gemini-a", "gemini-b")):
+    return LLMClient(gemini_api_key=gemini_key, groq_api_key=groq_key, gemini_models=list(models),
+                     groq_model="g", retry_pause=0, session=session)
 
 
-def test_llm_falls_back_on_429():
-    s = FakeLLMSession({"gemini": 429, "groq": 429, "openrouter": 200})
-    c = LLMClient(gemini_api_key="k", groq_api_key="k", openrouter_api_key="k", retry_pause=0, session=s)
-    r = c.generate("system", "question")
-    assert r.provider == "openrouter"
-    assert s.calls == ["gemini", "groq", "openrouter"]
+def test_llm_uses_first_gemini_model():
+    s = FakeLLMSession({"gemini-a": 200})
+    r = _client(s).generate("system", "question")
+    assert r.provider == "gemini:gemini-a" and r.text == "answer from gemini-a"
+    assert s.calls == ["gemini-a"]
 
 
-def test_llm_missing_key_falls_through():
+def test_llm_falls_through_the_gemini_chain_on_429_and_503():
+    s = FakeLLMSession({"gemini-a": 429, "gemini-b": 503, "groq": 200})
+    r = _client(s).generate("system", "question")
+    assert r.provider == "groq"
+    assert s.calls == ["gemini-a", "gemini-b", "groq"]
+
+
+def test_llm_second_gemini_model_answers_when_first_is_out_of_quota():
+    s = FakeLLMSession({"gemini-a": 429, "gemini-b": 200})
+    r = _client(s).generate("system", "question")
+    assert r.provider == "gemini:gemini-b" and s.calls == ["gemini-a", "gemini-b"]
+
+
+def test_llm_network_timeout_falls_through():
+    s = FakeLLMSession({"gemini-b": 200}, raise_for=("gemini-a",))
+    assert _client(s).generate("system", "question").provider == "gemini:gemini-b"
+
+
+def test_llm_missing_gemini_key_goes_straight_to_groq():
     s = FakeLLMSession({"groq": 200})
-    c = LLMClient(gemini_api_key="", groq_api_key="k", openrouter_api_key="", retry_pause=0, session=s)
-    r = c.generate("system", "question")
+    r = _client(s, gemini_key="").generate("system", "question")
     assert r.provider == "groq" and s.calls == ["groq"]
 
 
-def test_llm_all_providers_fail():
-    s = FakeLLMSession({"gemini": 429, "groq": 429, "openrouter": 500})
-    c = LLMClient(gemini_api_key="k", groq_api_key="k", openrouter_api_key="k", retry_pause=0, session=s)
+def test_llm_all_fail_raises():
+    s = FakeLLMSession({"gemini-a": 429, "gemini-b": 429, "groq": 500})
     with pytest.raises(LLMError):
-        c.generate("system", "question")
+        _client(s).generate("system", "question")
+
+
+def test_llm_model_chain_from_env(monkeypatch):
+    monkeypatch.setenv("GEMINI_LLM_MODELS", "m1, m2 ,m3")
+    assert LLMClient(gemini_api_key="k").gemini_models == ["m1", "m2", "m3"]
+
+
+def test_llm_old_single_model_env_still_gets_the_default_backup(monkeypatch):
+    # Render/older .env files only set GEMINI_LLM_MODEL - they must not lose the backup model.
+    monkeypatch.delenv("GEMINI_LLM_MODELS", raising=False)
+    monkeypatch.setenv("GEMINI_LLM_MODEL", "gemini-3.6-flash")
+    assert LLMClient(gemini_api_key="k").gemini_models == ["gemini-3.6-flash", "gemini-3.5-flash-lite"]
 
 
 # --- HybridRetriever -----------------------------------------------------------

@@ -36,7 +36,7 @@ class AnswerResult:
     text: str
     sources: list[Source]
     grounded: bool  # False = no answer from the site (a refusal or outage message), never with sources
-    # Which LLM wrote the reply ("gemini" / "groq" / "openrouter"), or None if no model was used
+    # Which LLM wrote the reply ("gemini:<model>" / "groq"), or None if no model was used
     # (fixed message before or instead of a model call). Lets an eval tell Gemini answers from fallback ones.
     provider: str | None = None
 

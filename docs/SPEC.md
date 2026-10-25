@@ -36,7 +36,7 @@ Fixed rules: single source (site only, no outside knowledge); natural, pleasant 
 | Embeddings | Gemini Embedding 2 | Voyage AI |
 | Vector DB | Chroma, local file, no account | Supabase pgvector |
 | Rerank | Cohere Rerank (trial key) | none |
-| LLM | Gemini Flash | on 429: wait, then Groq, then OpenRouter (user shouldn't notice) |
+| LLM | Gemini Flash | on error: next Gemini model (own free quota), then Groq; all fail -> outage message |
 | Server | FastAPI | — |
 | UI | custom RTL chat page: bubbles, source cards, subtle animation (not Streamlit) | Streamlit |
 | Hosting | Render free web service (Docker) | any Docker host (same Dockerfile) |
@@ -143,3 +143,12 @@ Dated, with the reason, so later decisions have the context behind them.
 - **2026-10-25 - Cloud hosting added (not in the original spec).** Approved by Ahuva so the bot has a
   public link for judges and a CV. Render free + UptimeRobot wake-up ping; full reasoning and the
   rejected options are in "Cloud hosting".
+- **2026-10-25 - LLM fallback is now a chain of Gemini models, then Groq; OpenRouter removed.**
+  The eval showed the OpenRouter free model writing broken Hebrew, guessing beyond the site, and
+  once echoing prompt text to the user. Gemini's free quota is counted per model (the 429 says
+  `PerProjectPerModel`), so `gemini-3.5-flash-lite` after `gemini-3.6-flash` is a free backup on
+  the same key, tested on real questions with good, grounded Hebrew. Groq's old default
+  (`llama-3.3-70b-versatile`) is no longer offered there, so in the cloud Groq had been failing
+  every time too; it now uses `openai/gpt-oss-120b`. If every model fails, the user gets the
+  outage message with contact options instead of a weak answer. Chain is one env var:
+  `GEMINI_LLM_MODELS`.

@@ -134,7 +134,7 @@ def run_follow_ups(pipeline: AnswerPipeline, pacer: Pacer, items: list[dict]) ->
 
 
 def provider_counts(results: list[dict]) -> str:
-    """E.g. "gemini 33, openrouter 2" - one count per reply (turn2 for follow-ups)."""
+    """E.g. "gemini:gemini-3.6-flash 33, groq 2" - one count per reply (turn2 for follow-ups)."""
     counts = Counter(r["provider"] or "no model" for r in results)
     return ", ".join(f"{name} {n}" for name, n in counts.most_common())
 

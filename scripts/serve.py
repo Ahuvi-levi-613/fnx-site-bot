@@ -5,7 +5,7 @@
   then open http://localhost:8000
 
 Needs the same keys as scripts/ask.py (VOYAGE_API_KEY, COHERE_API_KEY, and at least one of
-GEMINI_API_KEY/GROQ_API_KEY/OPENROUTER_API_KEY), plus a built index (scripts/build_index.py).
+GEMINI_API_KEY/GROQ_API_KEY), plus a built index (scripts/build_index.py).
 This serves Day 3's temporary test page - the real chat design comes separately.
 """
 from __future__ import annotations

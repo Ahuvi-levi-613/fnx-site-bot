@@ -14,7 +14,7 @@
 ```
 איסוף:   fnx.co.il ─► מיפוי (robots + sitemap, סינון לפי תחום) ─► Firecrawl / גיבוי ישיר ─► ניקוי ─► חיתוך ─► data/chunks.jsonl
 אינדקס:  chunks ─► Voyage AI embeddings (גיבוי ל-Gemini Embedding 2, שהמכסה החינמית שלו קטנה מדי) ─► Chroma מקומי (data/chroma)
-מענה:    שאלה ─► אחזור היברידי (סמנטי + מילות מפתח) ─► Cohere Rerank ─► Gemini Flash (גיבוי: Groq, OpenRouter) ─► FastAPI ─► דף צ'אט מימין לשמאל
+מענה:    שאלה ─► אחזור היברידי (סמנטי + מילות מפתח) ─► Cohere Rerank ─► Gemini Flash (גיבוי: מודל Gemini נוסף, ואז Groq) ─► FastAPI ─► דף צ'אט מימין לשמאל
 ```
 
 כלל הברזל: אין מקור, אין תשובה.
@@ -79,7 +79,7 @@ python scripts/ask.py "איך מגישים תביעה על נזקי מים?"
 python scripts/ask.py "..." --area apartment    # מגביל לתחום: car, apartment, travel, service
 ```
 
-מריץ אחזור היברידי + Cohere Rerank + LLM (Gemini, גיבוי Groq ואז OpenRouter), ומדפיס תשובה עם קישורי מקור.
+מריץ אחזור היברידי + Cohere Rerank + LLM (שרשרת מודלי Gemini, ואז Groq), ומדפיס תשובה עם קישורי מקור.
 אם המידע לא נמצא באתר, מוצגת הודעה מפורשת עם קישור לעמוד "צור קשר".
 
 ## יום 3: הרצת שרת הצ'אט
@@ -116,8 +116,8 @@ HTML, CSS ו-JavaScript רגילים, בלי שלב בנייה (`src/fnx_bot/ser
 
 הקמה ב-render.com:
 1. New > **Web Service**, מחברים את ה-repo מ-GitHub. Render מזהה את ה-`Dockerfile`. Instance type: **Free**.
-2. Environment: `DATA_URL` (הקישור ל-zip ב-Release), והמפתחות `VOYAGE_API_KEY`, `COHERE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
-   לא חובה (יש ברירות מחדל): `VOYAGE_EMBED_MODEL`, `VOYAGE_EMBED_DIM`, `COHERE_RERANK_MODEL`, `GEMINI_LLM_MODEL`, `GROQ_MODEL`, `OPENROUTER_MODEL`.
+2. Environment: `DATA_URL` (הקישור ל-zip ב-Release), והמפתחות `VOYAGE_API_KEY`, `COHERE_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`.
+   לא חובה (יש ברירות מחדל): `VOYAGE_EMBED_MODEL`, `VOYAGE_EMBED_DIM`, `COHERE_RERANK_MODEL`, `GEMINI_LLM_MODELS`, `GROQ_MODEL`.
    משתני `FIRECRAWL_*` ו-`CRAWL_*` לא נחוצים בענן.
 3. שירות חינמי נרדם אחרי 15 דקות בלי שימוש, והכניסה הראשונה אחרי זה לוקחת כדקה.
 
@@ -144,7 +144,7 @@ python -m pytest -q
 | `GEMINI_API_KEY` | יום 2 (מודל שפה) | aistudio.google.com |
 | `FIRECRAWL_API_KEY` | יום 1, לא חובה | firecrawl.dev |
 | `COHERE_API_KEY` | יום 2 | dashboard.cohere.com (מפתח ניסיון) |
-| `GROQ_API_KEY`, `OPENROUTER_API_KEY` | יום 2, גיבוי ל-LLM | console.groq.com, openrouter.ai |
+| `GROQ_API_KEY` | יום 2, גיבוי ל-LLM (אחרי שרשרת מודלי Gemini) | console.groq.com |
 
 מפתחות נשמרים רק ב-`.env`, לא בקוד ולא ב-git.
 
@@ -183,7 +183,7 @@ data/                      פלט (לא נכנס ל-git)
 **מגבלות:** עמודי אינטרנט בלבד (לא PDF/טפסים); ארבעת התחומים בלבד; אין גישה לנתוני לקוחות או
 לפוליסה אישית - שאלות כאלה מקבלות הסבר כללי מהאתר והפניה לשירות הלקוחות, לא תשובה מומצאת.
 ספקי ה-LLM החינמיים יש להם מגבלות תפעוליות אמיתיות שגילינו תוך כדי עבודה (Gemini לפעמים עמוס;
-Groq חסום ע"י NetFree על מחשב הפיתוח; המודלים החינמיים ב-OpenRouter משתנים עם הזמן) - ראו
+Groq חסום ע"י NetFree על מחשב הפיתוח; המכסה החינמית של כל מודל Gemini קטנה) - ראו
 [`docs/SPEC.md`](docs/SPEC.md#deviations-from-this-spec-log) לפירוט.
 
 **איך מרעננים תוכן:** מריצים מחדש את הסריקה (`python scripts/crawl.py all`) - כל קטע נשמר עם

@@ -1,5 +1,10 @@
-"""LLM client with automatic fallback: Gemini Flash -> Groq -> OpenRouter (SPEC: on
-failure, wait then fall through so the user shouldn't notice)."""
+"""LLM client with automatic fallback: a chain of Gemini models -> Groq (SPEC: on failure, fall
+through so the user shouldn't notice).
+
+Gemini's free quota is counted per model, so a second Gemini model is a free, good-Hebrew backup
+on the same key. OpenRouter was dropped (2026-10-25): its free model wrote broken Hebrew and once
+echoed prompt text to the user - a clear "temporary outage" message is better than that.
+"""
 from __future__ import annotations
 
 import os
@@ -10,7 +15,13 @@ import requests
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models"
 GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
-OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions"
+
+# Tested 2026-10-25 on real eval questions: 3.6-flash is the best; 3.5-flash-lite gave good,
+# grounded Hebrew and has its own quota. (3.8/3.5-flash were overloaded or out of quota,
+# 2.5-flash is closed to new users.)
+DEFAULT_GEMINI_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash-lite")
+# llama-3.3-70b-versatile is no longer offered by Groq (checked 2026-10-25 via GET /models).
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 class LLMError(Exception):
@@ -20,41 +31,45 @@ class LLMError(Exception):
 @dataclass
 class LLMResponse:
     text: str
-    provider: str  # "gemini", "groq", or "openrouter" -- whichever answered
+    provider: str  # whoever answered: "gemini:<model>" or "groq"
+
+
+def _gemini_models_from_env() -> list[str]:
+    """GEMINI_LLM_MODELS (comma-separated chain) wins. An older .env with only GEMINI_LLM_MODEL
+    keeps that model first and still gets the default backup after it."""
+    chain = os.getenv("GEMINI_LLM_MODELS", "").strip()
+    if chain:
+        return [m.strip() for m in chain.split(",") if m.strip()]
+    single = os.getenv("GEMINI_LLM_MODEL", "").strip()
+    if single:
+        return [single] + [m for m in DEFAULT_GEMINI_MODELS if m != single]
+    return list(DEFAULT_GEMINI_MODELS)
 
 
 class LLMClient:
-    """Generates a chat completion from a system + user prompt, trying Gemini Flash first
-    and falling back to Groq, then OpenRouter, if a provider errors (quota, outage, etc)."""
+    """Generates a reply from a system + user prompt: each Gemini model in order, then Groq,
+    moving on whenever one errors (quota, overload, timeout, missing key)."""
 
     def __init__(
         self,
         gemini_api_key: str | None = None,
         groq_api_key: str | None = None,
-        openrouter_api_key: str | None = None,
-        gemini_model: str | None = None,
+        gemini_models: list[str] | None = None,
         groq_model: str | None = None,
-        openrouter_model: str | None = None,
         retry_pause: float = 1.0,
         session: requests.Session | None = None,
     ):
         self.gemini_api_key = (gemini_api_key if gemini_api_key is not None else os.getenv("GEMINI_API_KEY", "")).strip()
         self.groq_api_key = (groq_api_key if groq_api_key is not None else os.getenv("GROQ_API_KEY", "")).strip()
-        self.openrouter_api_key = (
-            openrouter_api_key if openrouter_api_key is not None else os.getenv("OPENROUTER_API_KEY", "")
-        ).strip()
-        self.gemini_model = gemini_model or os.getenv("GEMINI_LLM_MODEL", "gemini-3.6-flash")
-        self.groq_model = groq_model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-        self.openrouter_model = openrouter_model or os.getenv(
-            "OPENROUTER_MODEL", "recursive/flint-v1.0:free"
-        )
+        self.gemini_models = list(gemini_models) if gemini_models else _gemini_models_from_env()
+        self.groq_model = groq_model or os.getenv("GROQ_MODEL", "") or DEFAULT_GROQ_MODEL
         self.retry_pause = retry_pause
         self.session = session or requests.Session()
 
-    def _gemini(self, system: str, prompt: str) -> str:
+    def _gemini(self, system: str, prompt: str, model: str | None = None) -> str:
         if not self.gemini_api_key:
             raise LLMError("Missing GEMINI_API_KEY in .env")
-        url = f"{GEMINI_API}/{self.gemini_model}:generateContent"
+        url = f"{GEMINI_API}/{model or self.gemini_models[0]}:generateContent"
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": system}]},
@@ -64,38 +79,34 @@ class LLMClient:
             raise LLMError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
-    def _openai_compatible(self, api_key: str, url: str, model: str, system: str, prompt: str, provider: str) -> str:
-        if not api_key:
-            raise LLMError(f"Missing API key for {provider}")
+    def _groq(self, system: str, prompt: str) -> str:
+        if not self.groq_api_key:
+            raise LLMError("Missing GROQ_API_KEY")
         body = {
-            "model": model,
+            "model": self.groq_model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         }
         r = self.session.post(
-            url, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=body, timeout=60
+            GROQ_API,
+            headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
+            json=body,
+            timeout=60,
         )
         if not r.ok:
-            raise LLMError(f"{provider} HTTP {r.status_code}: {r.text[:300]}")
+            raise LLMError(f"groq HTTP {r.status_code}: {r.text[:300]}")
         return r.json()["choices"][0]["message"]["content"]
 
     def generate(self, system: str, prompt: str) -> LLMResponse:
-        """Try Gemini, then Groq, then OpenRouter. Raises LLMError only if all three fail."""
+        """Try each Gemini model, then Groq. Raises LLMError only if every one fails."""
+        steps = [(f"gemini:{m}", lambda m=m: self._gemini(system, prompt, m)) for m in self.gemini_models]
+        steps.append(("groq", lambda: self._groq(system, prompt)))
         errors = []
-        providers = (
-            ("gemini", lambda: self._gemini(system, prompt)),
-            ("groq", lambda: self._openai_compatible(self.groq_api_key, GROQ_API, self.groq_model, system, prompt, "groq")),
-            (
-                "openrouter",
-                lambda: self._openai_compatible(
-                    self.openrouter_api_key, OPENROUTER_API, self.openrouter_model, system, prompt, "openrouter"
-                ),
-            ),
-        )
-        for provider, call in providers:
+        for i, (provider, call) in enumerate(steps):
             try:
                 return LLMResponse(text=call(), provider=provider)
-            except (LLMError, requests.RequestException) as e:
+            except (LLMError, requests.RequestException, KeyError, IndexError) as e:
+                # KeyError/IndexError: a 200 reply without text (e.g. a blocked response)
                 errors.append(f"{provider}: {e}")
-                if provider != providers[-1][0]:
-                    time.sleep(self.retry_pause)  # brief pause before falling through to the next provider
+                if i < len(steps) - 1:
+                    time.sleep(self.retry_pause)
         raise LLMError("All providers failed: " + " | ".join(errors))
