@@ -276,7 +276,7 @@ class FakeLLM:
     def __init__(self, text):
         self._text = text
 
-    def generate(self, system, prompt):
+    def generate(self, system, prompt, schema=None):
         return LLMResponse(text=self._text, provider="fake")
 
 
@@ -348,7 +348,7 @@ class RecordingLLM:
         self._text = text
         self.prompts = []
 
-    def generate(self, system, prompt):
+    def generate(self, system, prompt, schema=None):
         self.prompts.append(prompt)
         return LLMResponse(text=self._text, provider="fake")
 
@@ -424,7 +424,7 @@ class FailingReranker:
 
 
 class FailingLLM:
-    def generate(self, system, prompt):
+    def generate(self, system, prompt, schema=None):
         raise LLMError("all providers failed")
 
 
@@ -535,7 +535,7 @@ class RecordingFakeLLM(FakeLLM):
         super().__init__(text)
         self.prompts = []
 
-    def generate(self, system, prompt):
+    def generate(self, system, prompt, schema=None):
         self.prompts.append(prompt)
         return super().generate(system, prompt)
 
@@ -655,3 +655,146 @@ def test_pipeline_regular_question_does_not_get_the_contact_page():
     )
     p.answer("מה מכסה ביטוח חובה?")
     assert "customer-service/contact-us" not in llm.prompts[0]
+
+
+# --- structured output (JSON Schema) ---------------------------------------------------------
+
+import json as _json  # noqa: E402
+
+from fnx_bot.answer.llm import _to_gemini_schema  # noqa: E402
+from fnx_bot.answer.prompt import answer_schema, parse_structured  # noqa: E402
+
+
+def _j(status, answer, sources):
+    return _json.dumps({"status": status, "answer": answer, "sources": sources}, ensure_ascii=False)
+
+
+def test_pipeline_json_answer_uses_the_sources_list():
+    r = _pipeline_with(_j("FOUND", "ביטוח חובה מכסה נזקי גוף.", ["https://www.fnx.co.il/car"])).answer("שאלה")
+    assert r.grounded and r.text == "ביטוח חובה מכסה נזקי גוף."
+    assert [s.url for s in r.sources] == ["https://www.fnx.co.il/car"]
+
+
+def test_pipeline_json_source_that_was_not_given_is_dropped():
+    r = _pipeline_with(_j("FOUND", "תשובה.", ["https://evil.example.com"])).answer("שאלה")
+    assert r.grounded is False and r.sources == [] and r.text == NOT_ON_SITE_MESSAGE
+
+
+def test_pipeline_json_found_with_no_sources_is_no_answer():
+    r = _pipeline_with(_j("FOUND", "תשובה בלי מקור.", [])).answer("שאלה")
+    assert r.grounded is False and r.sources == []
+
+
+def test_pipeline_json_not_found_shows_natural_refusal_and_never_sources():
+    r = _pipeline_with(_j("NOT_FOUND", NATURAL, ["https://www.fnx.co.il/car"])).answer("מה מזג האוויר?")
+    assert r.grounded is False and r.sources == [] and r.text.startswith(NATURAL)
+
+
+def test_pipeline_json_found_but_admits_no_info_still_refuses():
+    r = _pipeline_with(_j("FOUND", "לא מצאתי מידע על כך.", ["https://www.fnx.co.il/car"])).answer("שאלה")
+    assert r.grounded is False and r.sources == []
+
+
+def test_parse_structured_accepts_a_code_fenced_reply():
+    fenced = "```json\n" + _j("FOUND", "x", ["u"]) + "\n```"
+    assert parse_structured(fenced) == ("FOUND", "x", ["u"])
+
+
+@pytest.mark.parametrize("reply", ["STATUS: FOUND\nטקסט", "{\"status\": \"MAYBE\"}", "[1, 2]", "{לא json"])
+def test_parse_structured_rejects_other_shapes(reply):
+    assert parse_structured(reply) is None
+
+
+def test_pipeline_sends_a_schema_limited_to_the_given_urls():
+    class SchemaRecordingLLM(FakeLLM):
+        def generate(self, system, prompt, schema=None):
+            self.schema = schema
+            return super().generate(system, prompt)
+
+    llm = SchemaRecordingLLM(_j("FOUND", "תשובה.", ["https://www.fnx.co.il/car"]))
+    AnswerPipeline(retriever=FakeRetriever(CANDIDATE),
+                   reranker=FakeReranker([RerankResult(index=0, relevance_score=0.9)]), llm=llm).answer("שאלה")
+    assert llm.schema["properties"]["sources"]["items"]["enum"] == ["https://www.fnx.co.il/car"]
+
+
+def test_answer_schema_with_no_passages_has_no_empty_enum():
+    assert answer_schema([])["properties"]["sources"]["items"] == {"type": "string"}
+
+
+def test_gemini_schema_conversion():
+    g = _to_gemini_schema(answer_schema(["https://a"]))
+    assert g["type"] == "OBJECT" and "additionalProperties" not in g
+    assert g["propertyOrdering"] == ["check", "status", "answer", "sources"]
+    assert g["properties"]["sources"]["items"] == {"type": "STRING", "enum": ["https://a"]}
+
+
+class BodyRecordingSession(FakeLLMSession):
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.last_body = json
+        return super().post(url, headers=headers, json=json, timeout=timeout)
+
+
+def test_llm_sends_schema_to_gemini_and_groq():
+    s = BodyRecordingSession({"gemini-a": 200})
+    _client(s).generate("system", "q", schema=answer_schema(["https://a"]))
+    assert s.last_body["generationConfig"]["responseMimeType"] == "application/json"
+    s = BodyRecordingSession({"groq": 200})
+    _client(s, gemini_key="").generate("system", "q", schema=answer_schema(["https://a"]))
+    assert s.last_body["response_format"]["type"] == "json_schema"
+
+
+def test_llm_without_schema_sends_no_structured_config():
+    s = BodyRecordingSession({"gemini-a": 200})
+    _client(s).generate("system", "q")
+    assert "generationConfig" not in s.last_body
+
+
+def test_answer_schema_asks_for_the_topic_check_before_the_decision():
+    order = list(answer_schema(["https://a"])["properties"])
+    assert order.index("check") < order.index("status")
+
+
+def test_pipeline_ignores_the_check_field_in_what_the_user_sees():
+    reply = _json.dumps({"check": "שאלו על רכב, הקטעים על רכב", "status": "FOUND", "answer": "תשובה.",
+                         "sources": ["https://www.fnx.co.il/car"]}, ensure_ascii=False)
+    r = _pipeline_with(reply).answer("שאלה")
+    assert r.grounded and r.text == "תשובה."
+
+
+# --- scope v1 enforced in code ---------------------------------------------------------------
+
+from fnx_bot.answer.scope import out_of_scope_topic  # noqa: E402
+
+
+@pytest.mark.parametrize("q,label", [
+    ("כמה עולה ביטוח בריאות בפניקס?", "ביטוח בריאות"),
+    ("איך מגישים תביעה בביטוח חיים?", "ביטוח חיים"),
+    ("איזה מסלול פנסיה כדאי לי?", "פנסיה"),
+    ("איך מושכים כסף מקופת גמל?", "קופות גמל"),
+    ("מה התשואה של קרן ההשתלמות?", "קרן השתלמות"),
+    ("ומה עם ביטוח סיעודי?", "ביטוח סיעודי"),
+])
+def test_out_of_scope_products_are_detected(q, label):
+    assert out_of_scope_topic(q) == label
+
+
+@pytest.mark.parametrize("q", [
+    "ביטוח הדירה מכסה פריצה?",
+    "הבנק דורש ביטוח מבנה למשכנתא, איך עושים את זה?",  # mortgage building insurance = apartment, in scope
+    "יש לי מחלה כרונית, איזה ביטוח נסיעות מתאים לי?",
+    "ביטוח בריאות בחו\"ל - מה הכיסוי?",                  # names travel too -> normal search
+    "מה מכסה ביטוח חובה?",
+])
+def test_in_scope_questions_are_not_refused_by_scope(q):
+    assert out_of_scope_topic(q) is None
+
+
+def test_pipeline_out_of_scope_question_is_refused_by_name_without_search_or_model():
+    class ExplodingRetriever:
+        def search(self, *a, **k):
+            raise AssertionError("must not search")
+
+    p = AnswerPipeline(retriever=ExplodingRetriever(), reranker=FakeReranker([]), llm=FailingLLM())
+    r = p.answer("כמה עולה ביטוח בריאות בפניקס?")
+    assert r.grounded is False and r.sources == [] and r.provider is None
+    assert r.text.startswith("על ביטוח בריאות אני עדיין לא יודעת לענות") and r.text.endswith(CONTACT_URL)

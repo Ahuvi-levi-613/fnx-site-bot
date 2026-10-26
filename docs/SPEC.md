@@ -17,6 +17,9 @@ In: web pages only, four areas:
 | travel | info for customers, what to do abroad, FAQ |
 | service | contact options, common actions, FAQ |
 Out: PDFs (forms, booklets, policy terms) — future upgrade; other site areas; login-only areas; personal data.
+Scope is enforced in code (`src/fnx_bot/answer/scope.py`) until the bot is expanded to the rest of the
+site (v2): a question about another Phoenix product (health, life, pension, provident/study funds, long-term
+care, pets, business) is refused by product name with contact options, before any search.
 
 ## Functional requirements
 1. Free Hebrew question -> clear Hebrew answer.
@@ -152,3 +155,9 @@ Dated, with the reason, so later decisions have the context behind them.
   every time too; it now uses `openai/gpt-oss-120b`. If every model fails, the user gets the
   outage message with contact options instead of a weak answer. Chain is one env var:
   `GEMINI_LLM_MODELS`.
+- **2026-10-26 - Answers use structured output, and scope v1 is enforced in code.** The model now returns
+  JSON (`check`, `status`, `answer`, `sources`) under a schema the API enforces; `sources` may only be URLs of
+  the passages it was given, and `check` makes it compare the question's topic with the passages' topic before
+  deciding. The older `STATUS:` line is still accepted as a fallback. Even so, the weaker backup model
+  sometimes answered a health insurance question with a travel insurance price, so scope v1 is now a code rule
+  (see "Scope v1"), in place until the bot covers the rest of the site.

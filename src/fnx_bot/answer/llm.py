@@ -24,6 +24,25 @@ DEFAULT_GEMINI_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash-lite")
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 
 
+def _to_gemini_schema(schema: dict) -> dict:
+    """Standard JSON Schema -> the OpenAPI-style subset Gemini's responseSchema takes
+    (upper-case type names, no additionalProperties)."""
+    out = {}
+    for key, value in schema.items():
+        if key == "additionalProperties":
+            continue
+        if key == "type":
+            out[key] = value.upper()
+        elif key == "properties":
+            out[key] = {name: _to_gemini_schema(sub) for name, sub in value.items()}
+            out["propertyOrdering"] = list(value)
+        elif key == "items":
+            out[key] = _to_gemini_schema(value)
+        else:
+            out[key] = value
+    return out
+
+
 class LLMError(Exception):
     pass
 
@@ -66,7 +85,7 @@ class LLMClient:
         self.retry_pause = retry_pause
         self.session = session or requests.Session()
 
-    def _gemini(self, system: str, prompt: str, model: str | None = None) -> str:
+    def _gemini(self, system: str, prompt: str, model: str | None = None, schema: dict | None = None) -> str:
         if not self.gemini_api_key:
             raise LLMError("Missing GEMINI_API_KEY in .env")
         url = f"{GEMINI_API}/{model or self.gemini_models[0]}:generateContent"
@@ -74,18 +93,23 @@ class LLMClient:
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": system}]},
         }
+        if schema:
+            # Structured output: Gemini must return JSON matching the schema (enforced by the API)
+            body["generationConfig"] = {"responseMimeType": "application/json", "responseSchema": _to_gemini_schema(schema)}
         r = self.session.post(url, headers={"x-goog-api-key": self.gemini_api_key}, json=body, timeout=60)
         if not r.ok:
             raise LLMError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
-    def _groq(self, system: str, prompt: str) -> str:
+    def _groq(self, system: str, prompt: str, schema: dict | None = None) -> str:
         if not self.groq_api_key:
             raise LLMError("Missing GROQ_API_KEY")
         body = {
             "model": self.groq_model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         }
+        if schema:
+            body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": schema}}
         r = self.session.post(
             GROQ_API,
             headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
@@ -96,10 +120,11 @@ class LLMClient:
             raise LLMError(f"groq HTTP {r.status_code}: {r.text[:300]}")
         return r.json()["choices"][0]["message"]["content"]
 
-    def generate(self, system: str, prompt: str) -> LLMResponse:
-        """Try each Gemini model, then Groq. Raises LLMError only if every one fails."""
-        steps = [(f"gemini:{m}", lambda m=m: self._gemini(system, prompt, m)) for m in self.gemini_models]
-        steps.append(("groq", lambda: self._groq(system, prompt)))
+    def generate(self, system: str, prompt: str, schema: dict | None = None) -> LLMResponse:
+        """Try each Gemini model, then Groq. Raises LLMError only if every one fails.
+        schema: an optional JSON Schema the reply must follow (structured output)."""
+        steps = [(f"gemini:{m}", lambda m=m: self._gemini(system, prompt, m, schema)) for m in self.gemini_models]
+        steps.append(("groq", lambda: self._groq(system, prompt, schema)))
         errors = []
         for i, (provider, call) in enumerate(steps):
             try:

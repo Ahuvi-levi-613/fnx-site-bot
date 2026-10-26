@@ -14,14 +14,17 @@ from .prompt import (
     NOT_ON_SITE_MESSAGE,
     SERVICE_UNAVAILABLE_MESSAGE,
     SYSTEM_PROMPT,
+    answer_schema,
     build_user_prompt,
     cited_urls,
-    is_grounded,
+    claims_not_found,
     parse_status,
+    parse_structured,
     safe_refusal,
 )
 from .rerank import CohereReranker, RerankError
 from .retrieve import HybridRetriever, _as_result
+from .scope import out_of_scope_message, out_of_scope_topic
 
 RERANK_TOP_N = 5
 MIN_RELEVANCE = 0.1  # below this, treat the top rerank hit as noise, not an actual match
@@ -73,6 +76,12 @@ class AnswerPipeline:
         return top + extra
 
     def answer(self, question: str, area: str | None = None, history: list[dict] | None = None) -> AnswerResult:
+        # SPEC scope v1 (car / apartment / travel / service), before any search: a question about
+        # another product is refused by name, so no page about a different product can answer it.
+        topic = out_of_scope_topic(question)
+        if topic:
+            return AnswerResult(text=out_of_scope_message(topic), sources=[], grounded=False)
+
         # Search with the question alone AND combined with the previous one, then merge: a
         # follow-up like "ומה עם רכב?" can be too bare to retrieve well on its own, but
         # combining it with the prior question can drag in that question's own topic too -
@@ -101,28 +110,40 @@ class AnswerPipeline:
         # Even with no relevant passages the model is still asked, with none attached, so an
         # off-topic question gets a natural "not something I can help with" instead of a canned
         # line. With no passages there's nothing it can cite, so it can't come back as an answer.
+        allowed = {p["url"] for p in top}
+        prompt = build_user_prompt(question, top, history=history)
         try:
-            response = self.llm.generate(SYSTEM_PROMPT, build_user_prompt(question, top, history=history))
+            # Structured output: the API makes the model return {status, answer, sources}, and
+            # sources may only be URLs of the passages it was given.
+            response = self.llm.generate(SYSTEM_PROMPT, prompt, schema=answer_schema(sorted(allowed)))
         except LLMError:
             if not top:
                 return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False)
             return AnswerResult(text=SERVICE_UNAVAILABLE_MESSAGE, sources=[], grounded=False)
-        # Only an explicit "STATUS: FOUND" counts as an answer. NOT_FOUND shows the model's own
-        # short refusal if it passes safe_refusal(); otherwise, or with a missing/garbled status
-        # line, the fixed message. Either way: no sources - a non-answer never comes with citations.
         provider = response.provider
-        status, text = parse_status(response.text)
+
+        structured = parse_structured(response.text)
+        if structured:
+            status, text, model_sources = structured
+        else:
+            # Older format, if a provider ever ignores the schema: a "STATUS:" first line + URLs in the text
+            status, text = parse_status(response.text)
+            model_sources = cited_urls(text)
+
+        # Only an explicit FOUND counts as an answer. NOT_FOUND shows the model's own short refusal
+        # if it passes safe_refusal(); otherwise, or with no readable status, the fixed message.
+        # Either way: no sources - a non-answer never comes with citations.
         if status == "NOT_FOUND":
             return AnswerResult(text=safe_refusal(text) or NOT_ON_SITE_MESSAGE, sources=[], grounded=False,
                                 provider=provider)
         if status != "FOUND":
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False, provider=provider)
-        allowed = {p["url"] for p in top}
-        if not is_grounded(text, allowed):
+        # Only the pages the model says it used AND was actually given - the SPEC rule is "the
+        # link points to the page the answer came from". None of them, or wording that admits
+        # there's no info (second safety net): no source, no answer.
+        cited = {u for u in model_sources if u in allowed}
+        if not cited or claims_not_found(text):
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False, provider=provider)
-        # Only the pages the model actually cited, not every candidate it was handed -
-        # the SPEC rule is "the link points to the page the answer came from".
-        cited = {u for u in cited_urls(text) if u in allowed}
         seen: set[str] = set()
         sources = []
         for p in top:
