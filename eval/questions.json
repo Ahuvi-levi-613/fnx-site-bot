@@ -45,7 +45,6 @@
      "expected_url": "https://www.fnx.co.il/customer-service/your-request-for-info"}
   ],
   "not_answerable": [
-    {"id": "q21", "n": 21, "question": "כמה יעלה לי ביטוח מקיף לטויוטה קורולה 2022?"},
     {"id": "q22", "n": 22, "question": "מה מחיר מניית הפניקס היום?"},
     {"id": "q24", "n": 24, "question": "מה מזג האוויר מחר בתל אביב?"},
     {"id": "q25", "n": 25, "question": "איזו חברת ביטוח הכי זולה בישראל?"},
@@ -56,6 +55,8 @@
     {"id": "q30", "n": 30, "question": "מה הכתובת של הסניף בבאר שבע?"}
   ],
   "personal_policy": [
+    {"id": "q21", "n": 21, "question": "כמה יעלה לי ביטוח מקיף לטויוטה קורולה 2022?",
+     "note": "price quote: moved from not_answerable (2026-10-27) - expected: what affects the price per the site + referral, no made-up price"},
     {"id": "q23", "n": 23, "question": "הפוליסה שלי מכסה את התאונה שהייתה לי אתמול?"}
   ],
   "follow_ups": [
