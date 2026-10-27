@@ -208,11 +208,44 @@
     t = t.replace(/\n\s*((?:\[\d+\][ \t]*)+)(?=\n|$)/g, ' $1');
     t = t.replace(/\n{3,}/g, '\n\n').trim();
     if (sources.length && !/\[\d+\]/.test(t)) t += ' ' + sources.map((x, i) => '[' + (i + 1) + ']').join(' ');
-    // one marker per number per line
-    return t.split('\n').map((line) => {
-      const seen = {};
-      return line.replace(/\s*\[(\d+)\]/g, (m, n) => (seen[n] ? '' : ((seen[n] = 1), m)));
-    }).join('\n');
+    return markersPerBlock(t);
+  }
+
+  // Source numbers go once at the end of each paragraph or list, not on every sentence/item:
+  // collect a block's markers, drop them from its lines, put each number once after its last line.
+  const LIST_LINE = /^\s*(?:\d+[.)]|[-*•])\s+/;
+  function markersPerBlock(t) {
+    const lines = t.split('\n');
+    const kind = (l) => (!l.trim() ? 'blank' : LIST_LINE.test(l) ? 'list' : 'text');
+    const out = [];
+    let block = [], blockKind = null;
+    const flush = () => {
+      if (!block.length) return;
+      const nums = [];
+      const clean = block.map((l) => l.replace(/\s*\[(\d+)\]/g, (m, n) => {
+        if (!nums.includes(n)) nums.push(n);
+        return '';
+      }).replace(/[ \t]+$/, ''));
+      clean.forEach((l, i) => {
+        // blank lines inside a list are kept as-is; numbers go on the last non-blank line
+        if (i === clean.length - 1 && nums.length) l += ' ' + nums.map((n) => '[' + n + ']').join(' ');
+        out.push(l);
+      });
+      block = []; blockKind = null;
+    };
+    lines.forEach((l, i) => {
+      const k = kind(l);
+      if (k === 'blank') {
+        // a blank line between two list items keeps the list as one block
+        const next = lines.slice(i + 1).find((x) => x.trim());
+        if (blockKind === 'list' && next && LIST_LINE.test(next)) { block.push(l); return; }
+        flush(); out.push(l); return;
+      }
+      if (blockKind && k !== blockKind) flush();
+      block.push(l); blockKind = k;
+    });
+    flush();
+    return out.join('\n');
   }
 
   function inline(parent, text) {
