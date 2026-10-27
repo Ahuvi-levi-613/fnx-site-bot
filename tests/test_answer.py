@@ -805,3 +805,21 @@ def test_pipeline_json_inline_url_in_the_text_counts_as_a_source():
     text = "ביטוח חובה מכסה נזקי גוף. https://www.fnx.co.il/car"
     r = _pipeline_with(_j("FOUND", text, [])).answer("שאלה")
     assert r.grounded and r.text == text and [s.url for s in r.sources] == ["https://www.fnx.co.il/car"]
+
+
+class TimeoutRecordingSession(FakeLLMSession):
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.timeouts = getattr(self, "timeouts", []) + [timeout]
+        return super().post(url, headers=headers, json=json, timeout=timeout)
+
+
+def test_llm_waits_at_most_20s_per_model_by_default(monkeypatch):
+    monkeypatch.delenv("LLM_TIMEOUT_SECONDS", raising=False)
+    s = TimeoutRecordingSession({"gemini-a": 503, "gemini-b": 503, "groq": 200})
+    _client(s).generate("system", "q")
+    assert s.timeouts == [20, 20, 20]
+
+
+def test_llm_timeout_can_be_set_from_env(monkeypatch):
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "8")
+    assert LLMClient(gemini_api_key="k").timeout == 8

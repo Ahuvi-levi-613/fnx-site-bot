@@ -22,6 +22,10 @@ GROQ_API = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_GEMINI_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash-lite")
 # llama-3.3-70b-versatile is no longer offered by Groq (checked 2026-10-25 via GET /models).
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+# Per model, not per question. A normal reply takes 3-10s; a stuck model (overloaded Gemini, or
+# Groq behind NetFree on the dev machine) used to hold a user for 60s each - over 5 minutes once
+# (2026-10-27). With 20s the whole chain answers or gives the outage message in about a minute.
+DEFAULT_TIMEOUT_SECONDS = 20
 
 
 def _to_gemini_schema(schema: dict) -> dict:
@@ -77,12 +81,14 @@ class LLMClient:
         groq_model: str | None = None,
         retry_pause: float = 1.0,
         session: requests.Session | None = None,
+        timeout: float | None = None,
     ):
         self.gemini_api_key = (gemini_api_key if gemini_api_key is not None else os.getenv("GEMINI_API_KEY", "")).strip()
         self.groq_api_key = (groq_api_key if groq_api_key is not None else os.getenv("GROQ_API_KEY", "")).strip()
         self.gemini_models = list(gemini_models) if gemini_models else _gemini_models_from_env()
         self.groq_model = groq_model or os.getenv("GROQ_MODEL", "") or DEFAULT_GROQ_MODEL
         self.retry_pause = retry_pause
+        self.timeout = timeout or float(os.getenv("LLM_TIMEOUT_SECONDS", "") or DEFAULT_TIMEOUT_SECONDS)
         self.session = session or requests.Session()
 
     def _gemini(self, system: str, prompt: str, model: str | None = None, schema: dict | None = None) -> str:
@@ -96,7 +102,7 @@ class LLMClient:
         if schema:
             # Structured output: Gemini must return JSON matching the schema (enforced by the API)
             body["generationConfig"] = {"responseMimeType": "application/json", "responseSchema": _to_gemini_schema(schema)}
-        r = self.session.post(url, headers={"x-goog-api-key": self.gemini_api_key}, json=body, timeout=60)
+        r = self.session.post(url, headers={"x-goog-api-key": self.gemini_api_key}, json=body, timeout=self.timeout)
         if not r.ok:
             raise LLMError(f"Gemini HTTP {r.status_code}: {r.text[:300]}")
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -114,7 +120,7 @@ class LLMClient:
             GROQ_API,
             headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
             json=body,
-            timeout=60,
+            timeout=self.timeout,
         )
         if not r.ok:
             raise LLMError(f"groq HTTP {r.status_code}: {r.text[:300]}")
