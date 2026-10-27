@@ -1,6 +1,7 @@
 """Site-only prompt + the citation check that enforces SPEC's "no source, no answer"."""
 from __future__ import annotations
 
+import json
 import re
 
 # Real contact page found in the crawl (data/pages.jsonl): lists phone/WhatsApp/email per
@@ -22,15 +23,19 @@ SERVICE_UNAVAILABLE_MESSAGE = (
 SYSTEM_PROMPT = """את עוזרת וירטואלית של חברת הביטוח הפניקס (fnx.co.il). עונה בעברית בלבד, בנימה נעימה וברורה.
 
 חוקי יסוד (אסור לחרוג מהם):
-0. השורה הראשונה בתשובה חייבת להיות בדיוק אחת משתי אלה, באנגלית, לבד בשורה:
-   STATUS: FOUND - אם התשובה לשאלה הנוכחית באמת נמצאת בקטעים שסופקו.
-   STATUS: NOT_FOUND - אם התשובה לא נמצאת בקטעים, או שהקטעים רק נוגעים בנושא בלי לענות על השאלה עצמה.
+0. התשובה מוחזרת כאובייקט JSON עם ארבעה שדות, בסדר הזה:
+   check - לפני ההחלטה, משפט קצר: על איזה מוצר או נושא בדיוק שאל המשתמש, על איזה מוצר או נושא מדברים
+   הקטעים, והאם הקטעים עונים על השאלה הזו עצמה. השדה הזה לא מוצג למשתמש.
+   status - "FOUND" אם התשובה לשאלה הנוכחית באמת נמצאת בקטעים שסופקו, או "NOT_FOUND" אם היא לא נמצאת בהם,
+   או שהקטעים רק נוגעים בנושא בלי לענות על השאלה עצמה. פרט, מחיר או כיסוי של מוצר אחר מזה שנשאל אינו תשובה.
+   answer - הטקסט שהמשתמש יראה, עם כתובת ה-URL של המקור בסוף כל משפט או פסקה שמבוססים עליו (ראי כלל 3).
+   sources - כתובות ה-URL של הקטעים שבהם באמת השתמשת בתשובה, ורק אותם. קטע שרק נגע בנושא ולא תרם פרט
+   לתשובה לא נכנס לרשימה. ב-NOT_FOUND הרשימה ריקה.
    חריג חשוב - שאלה על הפוליסה האישית של המשתמש (למשל "הפוליסה שלי מכסה את התאונה שהייתה לי?"):
-   אם בקטעים יש מידע כללי על הנושא (למשל מה ביטוח מקיף מכסה), כתבי STATUS: FOUND, הסבירי מה כתוב באתר
+   אם בקטעים יש מידע כללי על הנושא (למשל מה ביטוח מקיף מכסה), status הוא FOUND: הסבירי מה כתוב באתר
    באופן כללי, וכתבי במפורש שאת הבדיקה של הפוליסה האישית עושים מול שירות הלקוחות. NOT_FOUND רק אם אין
    בקטעים שום מידע כללי על הנושא.
-   אחרי השורה הזו כתבי את התשובה עצמה.
-   במקרה של NOT_FOUND כתבי אחרי השורה תגובה קצרה וטבעית למשתמש, משפט או שניים, מותאמת לשאלה שלו.
+   במקרה של NOT_FOUND, answer הוא תגובה קצרה וטבעית למשתמש, משפט או שניים, מותאמת לשאלה שלו.
    מותר בה רק: לומר בעדינות שבזה את לא יכולה לעזור, לומר שאת עוזרת בביטוח רכב, דירה ונסיעות לחו"ל
    ובשירות הלקוחות של הפניקס, ואם מתאים - להציע שאלה קשורה שאפשר לשאול אותך.
    אסור בה בהחלט: כל עובדה או מידע כללי על הנושא שנשאל (גם לא "בדרך כלל..."), מספרים, מחירים, תאריכים,
@@ -43,6 +48,7 @@ SYSTEM_PROMPT = """את עוזרת וירטואלית של חברת הביטוח
    באמת נעזרת** - לא רק עמוד "ראשי" אחד: כל פרט ליד העמוד שממנו הוא נלקח. אל תרכזי את הכתובות ברשימה
    בסוף התשובה, ובלי כותרת כמו "מקורות". כתבי את הכתובת כמו שהיא, בלי סוגריים סביבה. המערכת מציגה כל כתובת כמספר קטן ורשימת מקורות מסודרת בנפרד.
    לפריט ברשימה ממוספרת או בתבליטים - הכתובת בסוף אותו פריט.
+   את אותן כתובות כתבי גם בשדה sources.
 4. שאלה על פוליסה אישית ספציפית: הסבירי מה כתוב באתר באופן כללי, והפני לשירות הלקוחות לבדיקה פרטנית.
 5. אל תבקשי ואל תשמרי פרטים אישיים מזהים של המשתמש.
 
@@ -50,6 +56,45 @@ SYSTEM_PROMPT = """את עוזרת וירטואלית של חברת הביטוח
 אם השאלה מעורפלת מדי כדי לדעת איזה תחום (רכב/דירה/נסיעות/שירות), שאלי שאלה קצרה להבהרה במקום לנחש.
 אם מופיעה למטה היסטוריית שיחה קודמת, התייחסי אליה כדי להבין שאלות המשך (למשל "ומה עם רכב?" אחרי שיחה על דירה).
 """
+
+
+def answer_schema(allowed_urls: list[str]) -> dict:
+    """JSON Schema for the model's reply (structured output, enforced by the API). sources may only
+    be URLs of passages the model was actually given - it can't name any other page."""
+    url_item = {"type": "string", "enum": sorted(allowed_urls)} if allowed_urls else {"type": "string"}
+    return {
+        "type": "object",
+        "properties": {
+            # Written first, before the decision: the model has to compare the question's topic with
+            # the passages' topic. Without it, a passage about another product (e.g. a travel
+            # insurance price for a health insurance question) was taken as an answer.
+            "check": {"type": "string"},
+            "status": {"type": "string", "enum": ["FOUND", "NOT_FOUND"]},
+            "answer": {"type": "string"},
+            "sources": {"type": "array", "items": url_item},
+        },
+        "required": ["check", "status", "answer", "sources"],
+        "additionalProperties": False,
+    }
+
+
+def parse_structured(reply: str) -> tuple[str, str, list[str]] | None:
+    """(status, answer, sources) from a JSON reply, or None if it isn't valid JSON of that shape -
+    the caller then falls back to the older "STATUS:" line format."""
+    text = reply.strip()
+    if text.startswith("```"):  # tolerate a model that wraps the JSON in a code fence
+        text = text.strip("`").removeprefix("json").strip()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or data.get("status") not in ("FOUND", "NOT_FOUND"):
+        return None
+    answer = data.get("answer")
+    sources = data.get("sources") or []
+    if not isinstance(answer, str) or not isinstance(sources, list):
+        return None
+    return data["status"], answer.strip(), [u for u in sources if isinstance(u, str)]
 
 
 def build_user_prompt(question: str, passages: list[dict], history: list[dict] | None = None) -> str:
