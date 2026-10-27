@@ -141,7 +141,8 @@ class AnswerPipeline:
         # Only the pages the model says it used AND was actually given - the SPEC rule is "the
         # link points to the page the answer came from". None of them, or wording that admits
         # there's no info (second safety net): no source, no answer.
-        cited = {u for u in model_sources if u in allowed}
+        # Inline URLs in the text (they become the per-sentence markers in the UI) count too.
+        cited = {u for u in [*model_sources, *cited_urls(text)] if u in allowed}
         if not cited or claims_not_found(text):
             return AnswerResult(text=NOT_ON_SITE_MESSAGE, sources=[], grounded=False, provider=provider)
         seen: set[str] = set()

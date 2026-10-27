@@ -798,3 +798,10 @@ def test_pipeline_out_of_scope_question_is_refused_by_name_without_search_or_mod
     r = p.answer("כמה עולה ביטוח בריאות בפניקס?")
     assert r.grounded is False and r.sources == [] and r.provider is None
     assert r.text.startswith("על ביטוח בריאות אני עדיין לא יודעת לענות") and r.text.endswith(CONTACT_URL)
+
+
+def test_pipeline_json_inline_url_in_the_text_counts_as_a_source():
+    # The UI shows a source number next to the sentence whose URL it ends with, so the text keeps them.
+    text = "ביטוח חובה מכסה נזקי גוף. https://www.fnx.co.il/car"
+    r = _pipeline_with(_j("FOUND", text, [])).answer("שאלה")
+    assert r.grounded and r.text == text and [s.url for s in r.sources] == ["https://www.fnx.co.il/car"]
